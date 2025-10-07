@@ -3,8 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/Engine.h"
-#include "Engine/GameInstance.h"
-#include "GameFramework/Actor.h"
-#include "GameFramework/Character.h"
-#include "UObject/NoExportTypes.h"
+
+#define CUSTOM_DEPTH_RED 250
+#define CUSTOM_DEPTH_BLUE 251
+#define CUSTOM_DEPTH_GREEN 252
