@@ -16,4 +16,9 @@ class KALKI_API AKalkiGameModeBase : public AGameModeBase
 
 public:
 	AKalkiGameModeBase();
+
+protected:
+	virtual void BeginPlay() override;
+
+	
 };

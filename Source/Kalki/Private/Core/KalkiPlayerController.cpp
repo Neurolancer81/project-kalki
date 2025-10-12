@@ -1,118 +1,105 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-
 #include "Core/KalkiPlayerController.h"
-
-#include "AbilitySystemComponent.h"
-#include "GameplayTagContainer.h"
-#include "KalkiGameplayTags.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputActionValue.h"
 #include "Characters/KalkiCharacter.h"
+#include "Debug/KalkiCheatManager.h"
 
 AKalkiPlayerController::AKalkiPlayerController()
 {
+    bReplicates = true;
+    
+    // Set custom cheat manager
+    CheatClass = UKalkiCheatManager::StaticClass();
 }
 
 AKalkiCharacter* AKalkiPlayerController::GetKalkiCharacter() const
 {
-	return Cast<AKalkiCharacter>(GetPawn());
+    return Cast<AKalkiCharacter>(GetPawn());
 }
 
-#if WITH_EDITORONLY_DATA
-void AKalkiPlayerController::DamageCharacter(float Amount)
+void AKalkiPlayerController::BeginPlay()
 {
-	AKalkiCharacter* KalkiCharacter = GetKalkiCharacter();
-	if (KalkiCharacter)
-	{
-		KalkiCharacter->ApplyHealthChange(-Amount);
-		UE_LOG(LogTemp, Log, TEXT("Damaged character for %.0f"), Amount);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("No Kalki character possessed"));
-	}
+    Super::BeginPlay();
+
+    // Set up cursor and input modes
+    bShowMouseCursor = true;
+    DefaultMouseCursor = EMouseCursor::Default;
+
+    FInputModeGameAndUI InputMode;
+    InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+    InputMode.SetHideCursorDuringCapture(false);
+    SetInputMode(InputMode);
+
+    // Set up the input mapping context
+    check(KalkiMappingContext);
+    UEnhancedInputLocalPlayerSubsystem* SubSystem =
+        ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+    check(SubSystem);
+
+    SubSystem->AddMappingContext(KalkiMappingContext, 0);
 }
 
-void AKalkiPlayerController::HealCharacter(float Amount)
+void AKalkiPlayerController::Move(const FInputActionValue& ActionValue)
 {
-	AKalkiCharacter* KalkiCharacter = GetKalkiCharacter();
-	if (KalkiCharacter)
-	{
-		KalkiCharacter->ApplyHealthChange(Amount);
-		UE_LOG(LogTemp, Log, TEXT("Healed character for %.0f"), Amount);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("No Kalki character possessed"));
-	}
+    const FVector2D InputAxisVector = ActionValue.Get<FVector2D>();
+    const FRotator Rotation = FRotator(0.0, GetControlRotation().Yaw, 0.0);
+
+    const FVector ForwardDirection = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+    const FVector RightDirection = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Y);
+
+    if(APawn* ControlledPawn = GetPawn<APawn>())
+    {
+        ControlledPawn->AddMovementInput(ForwardDirection, InputAxisVector.Y);
+        ControlledPawn->AddMovementInput(RightDirection, InputAxisVector.X);
+    }
 }
 
-void AKalkiPlayerController::ActivateMeleeAttack()
+
+void AKalkiPlayerController::SetupInputComponent()
 {
-	using namespace KalkiGameplayTags;
-	AKalkiCharacter* KalkiCharacter = GetKalkiCharacter();
-	if (!KalkiCharacter)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("No character to activate ability"));
-		return;
-	}
+    Super::SetupInputComponent();
+    UEnhancedInputComponent* EnhancedInputComponent = CastChecked<UEnhancedInputComponent>(InputComponent);
 
-	UAbilitySystemComponent* ASC = KalkiCharacter->GetAbilitySystemComponent();
-	if (!ASC)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Character has no ASC"));
-		return;
-	}
-
-	// Try to activate ability by tag
-	FGameplayTagContainer AbilityTags;
-	AbilityTags.AddTag(Ability_Attack_Melee);
+    EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::Move);
     
-	bool bActivated = ASC->TryActivateAbilitiesByTag(AbilityTags);
-    
-	if (bActivated)
-	{
-		UE_LOG(LogTemp, Log, TEXT("Melee attack activated"));
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Failed to activate melee attack"));
-	}
+    // Debug actions (NumPad keys)
+    EnhancedInputComponent->BindAction(NumPad1Action, ETriggerEvent::Triggered, this, &ThisClass::NumPad1);
+    EnhancedInputComponent->BindAction(NumPad2Action, ETriggerEvent::Triggered, this, &ThisClass::NumPad2);
+    EnhancedInputComponent->BindAction(NumPad3Action, ETriggerEvent::Triggered, this, &ThisClass::NumPad3);
+    EnhancedInputComponent->BindAction(NumPad4Action, ETriggerEvent::Triggered, this, &ThisClass::NumPad4);
 }
 
-void AKalkiPlayerController::ListAbilities()
+void AKalkiPlayerController::NumPad1(const FInputActionValue& ActionValue)
 {
-	AKalkiCharacter* KalkiCharacter = GetKalkiCharacter();
-	if (!KalkiCharacter)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("No character to list abilities"));
-		return;
-	}
-
-	UAbilitySystemComponent* ASC = KalkiCharacter->GetAbilitySystemComponent();
-	if (!ASC)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Character has no ASC"));
-		return;
-	}
-
-	TArray<FGameplayAbilitySpec>& Specs = ASC->GetActivatableAbilities();
-    
-	UE_LOG(LogTemp, Log, TEXT("=== Abilities for %s ==="), *KalkiCharacter->GetName());
-    
-	if (Specs.Num() == 0)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("No abilities granted!"));
-	}
-	else
-	{
-		for (const FGameplayAbilitySpec& Spec : Specs)
-		{
-			if (Spec.Ability)
-			{
-				UE_LOG(LogTemp, Log, TEXT("- %s (Level %d)"), 
-					*Spec.Ability->GetName(), Spec.Level);
-			}
-		}
-	}
+    if (UKalkiCheatManager* Cheats = Cast<UKalkiCheatManager>(CheatManager))
+    {
+        Cheats->TestCombatLog();
+    }
 }
-#endif
+
+void AKalkiPlayerController::NumPad2(const FInputActionValue& ActionValue)
+{
+    if (UKalkiCheatManager* Cheats = Cast<UKalkiCheatManager>(CheatManager))
+    {
+        Cheats->ToggleUIMode();
+    }
+}
+
+void AKalkiPlayerController::NumPad3(const FInputActionValue& ActionValue)
+{
+    if (UKalkiCheatManager* Cheats = Cast<UKalkiCheatManager>(CheatManager))
+    {
+        Cheats->ShowCombatUI();
+    }
+}
+
+void AKalkiPlayerController::NumPad4(const FInputActionValue& ActionValue)
+{
+    if (UKalkiCheatManager* Cheats = Cast<UKalkiCheatManager>(CheatManager))
+    {
+        Cheats->ShowStrategyUI();
+    }
+}

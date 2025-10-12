@@ -15,9 +15,11 @@ UKalkiGameplayAbility_MeleeAttack::UKalkiGameplayAbility_MeleeAttack()
 {
 	using namespace KalkiGameplayTags;
 
-	// Set ability tags using native tags
-
-	AbilityTags.AddTag(Ability_Attack_Melee);
+	// Set ability tags using native tags	
+	FGameplayTagContainer DefaultAbilityTags = GetAssetTags();
+	DefaultAbilityTags.AddTag(Ability_Attack_Melee);
+	SetAssetTags(DefaultAbilityTags);
+	// AbilityTags.AddTag(Ability_Attack_Melee);
 	// Optionally set other tag containers:
 	// ActivationOwnedTags - Tags granted to owner while ability is active
 	// ActivationRequiredTags - Tags that must be present to activate
