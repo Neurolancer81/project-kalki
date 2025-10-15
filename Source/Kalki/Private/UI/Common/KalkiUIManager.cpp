@@ -67,58 +67,141 @@ void UKalkiUIManager::RegisterViewModelClass(TSubclassOf<UKalkiViewModelBase> Vi
 
 // In KalkiUIManager.cpp - Update InitializeViewModels:
 
+// In KalkiUIManager.cpp
+
 void UKalkiUIManager::InitializeViewModels()
 {
-    KalkiLog::System(
-        FString::Printf(TEXT("InitializeViewModels - Creating %d ViewModels"), 
-            RegisteredViewModelClasses.Num()),
-        EKalkiLogSeverity::Log,
-        this
+    FString LogPathTest = FPaths::ProjectSavedDir() / TEXT("crash_debug.txt");
+    
+    FFileHelper::SaveStringToFile(
+        TEXT("InitializeViewModels START\n"), 
+        *LogPathTest, 
+        FFileHelper::EEncodingOptions::AutoDetect, 
+        &IFileManager::Get(), 
+        FILEWRITE_Append
     );
 
-    for (TSubclassOf<UKalkiViewModelBase> VMClass : RegisteredViewModelClasses)
+    FFileHelper::SaveStringToFile(
+        FString::Printf(TEXT("InitializeViewModels - Registered classes: %d\n"), RegisteredViewModelClasses.Num()), 
+        *LogPathTest, 
+        FFileHelper::EEncodingOptions::AutoDetect, 
+        &IFileManager::Get(), 
+        FILEWRITE_Append
+    );
+
+    for (int32 i = 0; i < RegisteredViewModelClasses.Num(); ++i)
     {
+        TSubclassOf<UKalkiViewModelBase> VMClass = RegisteredViewModelClasses[i];
+        
+        FFileHelper::SaveStringToFile(
+            FString::Printf(TEXT("InitializeViewModels - Processing index %d\n"), i), 
+            *LogPathTest, 
+            FFileHelper::EEncodingOptions::AutoDetect, 
+            &IFileManager::Get(), 
+            FILEWRITE_Append
+        );
+
         if (!VMClass)
         {
+            FFileHelper::SaveStringToFile(
+                TEXT("InitializeViewModels - VMClass is null, skipping\n"), 
+                *LogPathTest, 
+                FFileHelper::EEncodingOptions::AutoDetect, 
+                &IFileManager::Get(), 
+                FILEWRITE_Append
+            );
             continue;
         }
+
+        FFileHelper::SaveStringToFile(
+            FString::Printf(TEXT("InitializeViewModels - VMClass name: %s\n"), *VMClass->GetName()), 
+            *LogPathTest, 
+            FFileHelper::EEncodingOptions::AutoDetect, 
+            &IFileManager::Get(), 
+            FILEWRITE_Append
+        );
 
         // Check if already created
         if (ViewModels.Contains(VMClass))
         {
-            KalkiLog::System(
-                FString::Printf(TEXT("InitializeViewModels - %s already exists"), 
-                    *VMClass->GetName()),
-                EKalkiLogSeverity::Warning,
-                this
+            FFileHelper::SaveStringToFile(
+                TEXT("InitializeViewModels - Already exists, skipping\n"), 
+                *LogPathTest, 
+                FFileHelper::EEncodingOptions::AutoDetect, 
+                &IFileManager::Get(), 
+                FILEWRITE_Append
             );
             continue;
         }
 
+        FFileHelper::SaveStringToFile(
+            TEXT("InitializeViewModels - About to call NewObject\n"), 
+            *LogPathTest, 
+            FFileHelper::EEncodingOptions::AutoDetect, 
+            &IFileManager::Get(), 
+            FILEWRITE_Append
+        );
+
         // Create ViewModel
         UKalkiViewModelBase* NewVM = NewObject<UKalkiViewModelBase>(this, VMClass);
+        
+        FFileHelper::SaveStringToFile(
+            TEXT("InitializeViewModels - NewObject returned\n"), 
+            *LogPathTest, 
+            FFileHelper::EEncodingOptions::AutoDetect, 
+            &IFileManager::Get(), 
+            FILEWRITE_Append
+        );
+
         if (NewVM)
         {
+            FFileHelper::SaveStringToFile(
+                TEXT("InitializeViewModels - Adding to ViewModels map\n"), 
+                *LogPathTest, 
+                FFileHelper::EEncodingOptions::AutoDetect, 
+                &IFileManager::Get(), 
+                FILEWRITE_Append
+            );
+            
             ViewModels.Add(VMClass, NewVM);
+            
+            FFileHelper::SaveStringToFile(
+                TEXT("InitializeViewModels - About to call OnInitialize\n"), 
+                *LogPathTest, 
+                FFileHelper::EEncodingOptions::AutoDetect, 
+                &IFileManager::Get(), 
+                FILEWRITE_Append
+            );
+            
             NewVM->OnInitialize();
             
-            KalkiLog::System(
-                FString::Printf(TEXT("InitializeViewModels - Created %s"), 
-                    *VMClass->GetName()),
-                EKalkiLogSeverity::Log,
-                this
+            FFileHelper::SaveStringToFile(
+                TEXT("InitializeViewModels - OnInitialize completed\n"), 
+                *LogPathTest, 
+                FFileHelper::EEncodingOptions::AutoDetect, 
+                &IFileManager::Get(), 
+                FILEWRITE_Append
             );
         }
         else
         {
-            KalkiLog::System(
-                FString::Printf(TEXT("InitializeViewModels - Failed to create %s"), 
-                    *VMClass->GetName()),
-                EKalkiLogSeverity::Error,
-                this
+            FFileHelper::SaveStringToFile(
+                TEXT("InitializeViewModels - NewObject returned null\n"), 
+                *LogPathTest, 
+                FFileHelper::EEncodingOptions::AutoDetect, 
+                &IFileManager::Get(), 
+                FILEWRITE_Append
             );
         }
     }
+
+    FFileHelper::SaveStringToFile(
+        TEXT("InitializeViewModels END\n"), 
+        *LogPathTest, 
+        FFileHelper::EEncodingOptions::AutoDetect, 
+        &IFileManager::Get(), 
+        FILEWRITE_Append
+    );
 }
 
 void UKalkiUIManager::ShutdownViewModels()

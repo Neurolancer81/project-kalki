@@ -24,6 +24,16 @@ void AKalkiPlayerController::BeginPlay()
 {
     Super::BeginPlay();
 
+    // Enable cheat manager on clients for development
+#if !UE_BUILD_SHIPPING
+    if (!CheatManager)
+    {
+        AddCheats(true); // Force enable cheat manager
+    }
+#endif
+
+    if (!IsLocalPlayerController()) return;
+
     // Set up cursor and input modes
     bShowMouseCursor = true;
     DefaultMouseCursor = EMouseCursor::Default;
@@ -76,7 +86,7 @@ void AKalkiPlayerController::NumPad1(const FInputActionValue& ActionValue)
 {
     if (UKalkiCheatManager* Cheats = Cast<UKalkiCheatManager>(CheatManager))
     {
-        Cheats->TestCombatLog();
+        Cheats->StartTestCombatLog();
     }
 }
 

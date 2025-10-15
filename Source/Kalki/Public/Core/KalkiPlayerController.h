@@ -35,7 +35,7 @@ protected:
 	TObjectPtr<UInputAction> MoveAction;
 
 	UPROPERTY(EditAnywhere, Category = "Input|Debug")
-	TObjectPtr<UInputAction> NumPad1Action;  // TestCombatLog
+	TObjectPtr<UInputAction> NumPad1Action;  // StartTestCombatLog
 
 	UPROPERTY(EditAnywhere, Category = "Input|Debug")
 	TObjectPtr<UInputAction> NumPad2Action;  // ToggleUIMode

@@ -86,7 +86,7 @@ protected:
     // Transform raw message to display entry
     FKalkiLogDisplayEntry TransformMessage(const FKalkiLogMessage& Message);
 
-    // Extract interactive elements from message (FUTURE - placeholder for now)
+    // Extract interactive elements from message (placeholder for future tooltips)
     TArray<FKalkiLogInteractiveElement> ExtractInteractiveElements(const FKalkiLogMessage& Message);
 
     // Check if message passes filters

@@ -19,6 +19,10 @@ void UKalkiLogMessageWidget::SetMessage(const FKalkiLogDisplayEntry& InEntry)
 		FLinearColor Color = GetSeverityColor(MessageEntry.Severity);
 		MessageText->SetColorAndOpacity(FSlateColor(Color));
 	}
+	else
+	{
+		
+	}
 }
 
 void UKalkiLogMessageWidget::OnThemeApplied()

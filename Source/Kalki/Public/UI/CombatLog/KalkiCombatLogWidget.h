@@ -8,11 +8,11 @@
 #include "UI/Widgets/KalkiViewModelWidget.h"
 #include "KalkiCombatLogWidget.generated.h"
 
-struct FKalkiLogDisplayEntry;
 class UKalkiCombatLogViewModel;
 class UScrollBox;
 class UButton;
 class UKalkiLogMessageWidget;
+struct FKalkiLogDisplayEntry;
 
 /**
  * Main combat log widget
@@ -24,7 +24,7 @@ class KALKI_API UKalkiCombatLogWidget : public UKalkiViewModelWidget
 	GENERATED_BODY()
 
 protected:
-	// UKalkiViewModelWidget interface
+	// UKalkiWidgetBase interface
 	virtual void OnViewModelSet() override;
 	virtual void OnViewModelCleared() override;
 

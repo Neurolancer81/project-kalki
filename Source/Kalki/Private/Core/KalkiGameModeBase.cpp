@@ -43,7 +43,16 @@ void AKalkiGameModeBase::BeginPlay()
 		{
 			UIManager->SetGlobalTheme(Theme);
 		}
-	}
+	}	
+}
 
-	
+bool AKalkiGameModeBase::AllowCheats(APlayerController* P)
+{
+	// In shipping builds, use default behavior (server only)
+#if UE_BUILD_SHIPPING
+	return Super::AllowCheats(P);
+#else
+	// In development builds, allow cheats everywhere
+	return true;
+#endif
 }

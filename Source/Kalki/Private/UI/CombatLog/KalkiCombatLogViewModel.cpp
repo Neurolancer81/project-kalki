@@ -1,6 +1,5 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-
 // Private/UI/CombatLog/KalkiCombatLogViewModel.cpp
 
 #include "UI/CombatLog/KalkiCombatLogViewModel.h"
@@ -15,8 +14,13 @@ void UKalkiCombatLogViewModel::OnInitialize()
     Super::OnInitialize();
 
     // Get log subsystem
-    LogSubsystem = GetWorld()->GetSubsystem<UKalkiLogSubsystem>();
-    
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    LogSubsystem = World->GetSubsystem<UKalkiLogSubsystem>();
     if (!LogSubsystem)
     {
         KalkiLog::System(TEXT("CombatLogViewModel - Failed to get LogSubsystem"), EKalkiLogSeverity::Error, this);
@@ -35,8 +39,6 @@ void UKalkiCombatLogViewModel::OnInitialize()
         TrackedCombatSessionID = LogSubsystem->GetCurrentCombatSessionID();
         RefreshFromSubsystem();
     }
-
-    KalkiLog::System(TEXT("CombatLogViewModel initialized"), EKalkiLogSeverity::Log, this);
 }
 
 void UKalkiCombatLogViewModel::OnShutdown()
@@ -69,9 +71,14 @@ void UKalkiCombatLogViewModel::OnLogMessageAdded(const FKalkiLogMessage& Message
     // Check if this is a combat session end
     if (Message.Message.Contains(TEXT("Combat session ended")))
     {
-        // Combat ended - stop tracking
         TrackedCombatSessionID = -1;
-        // Keep messages displayed until explicitly cleared
+    }
+
+    // Auto-track combat session if we're not tracking any yet
+    if (TrackedCombatSessionID == -1 && Message.CombatSessionID >= 0)
+    {
+        TrackedCombatSessionID = Message.CombatSessionID;
+        CombatMessages.Empty();
     }
 
     // Only add messages from current combat session (or system messages)
@@ -95,8 +102,7 @@ FKalkiLogDisplayEntry UKalkiCombatLogViewModel::TransformMessage(const FKalkiLog
 {
     FKalkiLogDisplayEntry Entry;
 
-    // Format display text
-    // Format: [Channel] Message
+    // Format display text: [Channel] Message
     FString ChannelStr = UEnum::GetDisplayValueAsText(Message.Channel).ToString();
     Entry.DisplayText = FText::FromString(FString::Printf(TEXT("[%s] %s"), *ChannelStr, *Message.Message));
 
@@ -122,12 +128,8 @@ TArray<FKalkiLogInteractiveElement> UKalkiCombatLogViewModel::ExtractInteractive
 
     // TODO: Future implementation
     // Parse message text and metadata to find:
-    // - Character names (from metadata or text parsing)
-    // - Damage numbers (from metadata)
-    // - Positions (from metadata: FromTile, ToTile)
-    // - Dice rolls (from metadata)
+    // - Character names, damage numbers, positions, dice rolls, etc.
     
-    // For now, return empty array
     return Elements;
 }
 
@@ -137,7 +139,7 @@ bool UKalkiCombatLogViewModel::PassesFilters(const FKalkiLogMessage& Message) co
     const bool* FilterValue = ChannelFilters.Find(Message.Channel);
     if (FilterValue && !(*FilterValue))
     {
-        return false; // Channel is filtered out
+        return false;
     }
 
     return true;
@@ -146,17 +148,7 @@ bool UKalkiCombatLogViewModel::PassesFilters(const FKalkiLogMessage& Message) co
 void UKalkiCombatLogViewModel::SetChannelFilter(EKalkiLogChannel Channel, bool bShow)
 {
     ChannelFilters.Add(Channel, bShow);
-
-    // Refresh display with new filters
     RefreshFromSubsystem();
-
-    KalkiLog::System(
-        FString::Printf(TEXT("CombatLogViewModel - Channel filter %s: %s"), 
-            *UEnum::GetValueAsString(Channel),
-            bShow ? TEXT("Show") : TEXT("Hide")),
-        EKalkiLogSeverity::Log,
-        this
-    );
 }
 
 bool UKalkiCombatLogViewModel::IsChannelFiltered(EKalkiLogChannel Channel) const
@@ -176,13 +168,13 @@ void UKalkiCombatLogViewModel::ClearAllFilters()
     ChannelFilters.Add(EKalkiLogChannel::Abilities, true);
     ChannelFilters.Add(EKalkiLogChannel::TurnSystem, true);
     ChannelFilters.Add(EKalkiLogChannel::Grid, true);
-    ChannelFilters.Add(EKalkiLogChannel::Dialogue, false); // Hide dialogue by default
-    ChannelFilters.Add(EKalkiLogChannel::Inventory, false); // Hide inventory by default
+    ChannelFilters.Add(EKalkiLogChannel::Dialogue, false); // Hide by default
+    ChannelFilters.Add(EKalkiLogChannel::Inventory, false); // Hide by default
     ChannelFilters.Add(EKalkiLogChannel::AI, true);
     ChannelFilters.Add(EKalkiLogChannel::Network, true);
-    ChannelFilters.Add(EKalkiLogChannel::Quest, false); // Hide quest by default
+    ChannelFilters.Add(EKalkiLogChannel::Quest, false); // Hide by default
     ChannelFilters.Add(EKalkiLogChannel::Ruleset, true);
-    ChannelFilters.Add(EKalkiLogChannel::Debug, false); // Hide debug by default
+    ChannelFilters.Add(EKalkiLogChannel::Debug, false); // Hide by default
 
     RefreshFromSubsystem();
 }
@@ -192,8 +184,6 @@ void UKalkiCombatLogViewModel::ClearCombatLog()
     CombatMessages.Empty();
     TrackedCombatSessionID = -1;
     OnCombatLogUpdated.Broadcast();
-
-    KalkiLog::System(TEXT("CombatLogViewModel - Combat log cleared"), EKalkiLogSeverity::Log, this);
 }
 
 void UKalkiCombatLogViewModel::RefreshFromSubsystem()
@@ -229,7 +219,6 @@ void UKalkiCombatLogViewModel::OpenCurrentLogFile()
 {
     if (!LogSubsystem)
     {
-        KalkiLog::System(TEXT("CombatLogViewModel - Cannot open log file: No LogSubsystem"), EKalkiLogSeverity::Warning, this);
         return;
     }
 
@@ -237,7 +226,6 @@ void UKalkiCombatLogViewModel::OpenCurrentLogFile()
     
     if (LogFilePath.IsEmpty())
     {
-        KalkiLog::System(TEXT("CombatLogViewModel - Cannot open log file: No active log file"), EKalkiLogSeverity::Warning, this);
         return;
     }
 
@@ -251,14 +239,7 @@ void UKalkiCombatLogViewModel::OpenCurrentLogFile()
     
     if (PlatformFile.CopyFile(*TempPath, *LogFilePath))
     {
-        // Open the temp copy
         FPlatformProcess::LaunchFileInDefaultExternalApplication(*TempPath, nullptr, ELaunchVerb::Open);
-        
-        KalkiLog::System(TEXT("CombatLogViewModel - Opened current log file"), EKalkiLogSeverity::Log, this);
-    }
-    else
-    {
-        KalkiLog::System(TEXT("CombatLogViewModel - Failed to copy log file"), EKalkiLogSeverity::Error, this);
     }
 }
 
@@ -266,6 +247,4 @@ void UKalkiCombatLogViewModel::OpenLogFolder()
 {
     FString LogDirectory = FPaths::ProjectSavedDir() / TEXT("Logs");
     FPlatformProcess::ExploreFolder(*LogDirectory);
-
-    KalkiLog::System(TEXT("CombatLogViewModel - Opened log folder"), EKalkiLogSeverity::Log, this);
 }

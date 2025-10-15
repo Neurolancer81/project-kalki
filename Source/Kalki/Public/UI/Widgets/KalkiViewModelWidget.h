@@ -5,9 +5,10 @@
 
 #include "CoreMinimal.h"
 #include "UI/Widgets/KalkiWidgetBase.h"  // Changed from Blueprint/UserWidget.h
+#include "UI/Common/KalkiViewModelBase.h"
 #include "KalkiViewModelWidget.generated.h"
 
-class UKalkiViewModelBase;
+// class UKalkiViewModelBase;
 
 /**
  * Base class for widgets that use ViewModels

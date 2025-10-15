@@ -6,14 +6,18 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Grid/KalkiGridTypes.h"
 #include "KalkiGridManager.generated.h"
 
-class AKalkiGridTile;
-
 /**
- * Manages the tactical grid for the battlefield
- * Tracks tiles, provides queries, and handles coordinate conversion
- * Does NOT spawn tiles - that's the map generator's job
+ * Grid Manager Subsystem
+ * Manages the tactical grid, pathfinding, and tile queries
+ * 
+ * MULTIPLAYER NOTES:
+ * - Grid is deterministic (same on all machines)
+ * - Only server has authority to modify grid
+ * - Clients can query but not modify
+ * - Grid built from LevelManager settings (replicated)
  */
 UCLASS()
 class KALKI_API UKalkiGridManager : public UWorldSubsystem
@@ -21,96 +25,116 @@ class KALKI_API UKalkiGridManager : public UWorldSubsystem
     GENERATED_BODY()
 
 public:
-    // Subsystem lifecycle
+    // Subsystem interface
     virtual void Initialize(FSubsystemCollectionBase& Collection) override;
     virtual void Deinitialize() override;
 
-    // Tile registration (called by tiles themselves)
-    void RegisterTile(AKalkiGridTile* Tile);
-    void UnregisterTile(AKalkiGridTile* Tile);
-
-    // Grid queries
+    // Grid creation (Server only)
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    AKalkiGridTile* GetTileAt(const FIntPoint& GridCoords) const;
+    void CreateGrid(int32 SizeX, int32 SizeY, float TileSize = 100.0f, const FVector& Origin = FVector::ZeroVector);
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    AKalkiGridTile* GetTileAtWorldLocation(const FVector& WorldLocation) const;
+    void ClearGrid();
+
+    // Grid queries (Anyone can query)
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    bool IsValidCoord(const FKalkiGridCoord& Coord) const;
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    FKalkiGridTile GetTile(const FKalkiGridCoord& Coord) const;
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    bool IsValidGridPosition(const FIntPoint& GridCoords) const;
+    bool SetTile(const FKalkiGridCoord& Coord, const FKalkiGridTile& Tile);
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    bool IsTileWalkable(const FKalkiGridCoord& Coord) const;
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    bool IsTileOccupied(const FKalkiGridCoord& Coord) const;
+
+    // Coordinate conversion (Pure, no authority needed)
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    FVector CoordToWorldPosition(const FKalkiGridCoord& Coord) const;
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    FKalkiGridCoord WorldPositionToCoord(const FVector& WorldPos) const;
+
+    // Occupancy (Server only for modification)
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
+    bool SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant);
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    bool IsWalkable(const FIntPoint& GridCoords) const;
+    bool ClearTileOccupant(const FKalkiGridCoord& Coord);
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    AActor* GetTileOccupant(const FKalkiGridCoord& Coord) const;
+
+    // Elevation (Server only for modification)
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    float GetElevation(const FKalkiGridCoord& Coord) const;
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    bool CanBeOccupied(const FIntPoint& GridCoords) const;
+    bool SetElevation(const FKalkiGridCoord& Coord, float Elevation);
 
-    // Coordinate conversion
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    float GetElevationDifference(const FKalkiGridCoord& From, const FKalkiGridCoord& To) const;
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    bool IsClimbable(const FKalkiGridCoord& From, const FKalkiGridCoord& To, float MaxClimbHeight = 200.0f) const;
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    bool HasLineOfSight(const FKalkiGridCoord& From, const FKalkiGridCoord& To) const;
+
+    // Neighbors (Pure queries)
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    TArray<FKalkiGridCoord> GetNeighbors(const FKalkiGridCoord& Coord, bool bDiagonalAllowed = true) const;
+
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    TArray<FKalkiGridCoord> GetWalkableNeighbors(const FKalkiGridCoord& Coord, bool bDiagonalAllowed = true) const;
+
+    // Pathfinding (Pure queries)
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    FIntPoint WorldToGrid(const FVector& WorldLocation) const;
+    FKalkiGridPath FindPath(const FKalkiGridCoord& Start, const FKalkiGridCoord& End, bool bDiagonalAllowed = true);
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    FVector GridToWorld(const FIntPoint& GridCoords) const;
+    TArray<FKalkiGridCoord> GetTilesInRange(const FKalkiGridCoord& Center, int32 Range, bool bRequireWalkable = false) const;
 
-    // Grid properties
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    FVector GetGridOrigin() const { return GridOrigin; }
+    // Grid info (Pure queries)
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    int32 GetGridSizeX() const { return GridSizeX; }
 
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void SetGridOrigin(const FVector& Origin) { GridOrigin = Origin; }
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    int32 GetGridSizeY() const { return GridSizeY; }
 
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
     float GetTileSize() const { return TileSize; }
 
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void SetTileSize(float Size) { TileSize = FMath::Max(1.0f, Size); }
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    FVector GetGridOrigin() const { return GridOrigin; }
 
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    int32 GetTileCount() const { return GridTiles.Num(); }
-
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    TArray<AKalkiGridTile*> GetAllTiles() const;
-
-    // Debug visualization
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void SetGridVisualizationEnabled(bool bEnabled);
-
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    bool IsGridVisualizationEnabled() const { return bShowGridVisualization; }
-
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void ToggleGridVisualization();
-
-    // Debug helper - spawns a simple flat grid for testing
-    // This is temporary - real levels use proper map generation
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid|Debug")
-    void SpawnDebugGrid(FVector Origin, int32 SizeX, int32 SizeY, TSubclassOf<AKalkiGridTile> TileClass);
-
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid|Debug")
-    void ClearAllTiles();
+    // Authority check
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    bool HasGridAuthority() const;
 
 protected:
-    // Tick for debug visualization
-    virtual void OnWorldBeginPlay(UWorld& InWorld) override;
-
-    // Draw debug lines for grid
-    void DrawDebugGrid();
-
-    // Grid data - map from grid position to tile
+    // Grid storage
     UPROPERTY()
-    TMap<FIntPoint, TObjectPtr<AKalkiGridTile>> GridTiles;
+    TMap<FKalkiGridCoord, FKalkiGridTile> GridTiles;
 
-    // Grid configuration
+    // Grid parameters
+    UPROPERTY()
+    int32 GridSizeX = 0;
+
+    UPROPERTY()
+    int32 GridSizeY = 0;
+
+    UPROPERTY()
+    float TileSize = 100.0f;
+
     UPROPERTY()
     FVector GridOrigin = FVector::ZeroVector;
 
-    UPROPERTY()
-    float TileSize = 100.0f; // 5 feet in Unreal units
-
-    // Visualization
-    UPROPERTY()
-    bool bShowGridVisualization = false;
-
-    UPROPERTY()
-    FTimerHandle VisualizationTimerHandle;
+    // Helper functions
+    FKalkiGridTile* GetTileMutable(const FKalkiGridCoord& Coord);
+    float GetMovementCost(const FKalkiGridCoord& From, const FKalkiGridCoord& To) const;
 };

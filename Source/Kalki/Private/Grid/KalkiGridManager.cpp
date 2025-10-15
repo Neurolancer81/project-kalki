@@ -1,312 +1,485 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-
 // Private/Grid/KalkiGridManager.cpp
 
 #include "Grid/KalkiGridManager.h"
-#include "Grid/KalkiGridTile.h"
-#include "DrawDebugHelpers.h"
-#include "Engine/World.h"
-#include "TimerManager.h"
+#include "Logging/KalkiLog.h"
 
 void UKalkiGridManager::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
-
-    UE_LOG(LogTemp, Log, TEXT("KalkiGridManager initialized"));
+    
+    KalkiLog::Grid(TEXT("Grid Manager initialized"));
 }
 
 void UKalkiGridManager::Deinitialize()
 {
-    // Clear timer
-    if (UWorld* World = GetWorld())
-    {
-        World->GetTimerManager().ClearTimer(VisualizationTimerHandle);
-    }
-
-    GridTiles.Empty();
-
+    ClearGrid();
+    
+    KalkiLog::Grid(TEXT("Grid Manager deinitialized"));
+    
     Super::Deinitialize();
 }
 
-void UKalkiGridManager::OnWorldBeginPlay(UWorld& InWorld)
+bool UKalkiGridManager::HasGridAuthority() const
 {
-    Super::OnWorldBeginPlay(InWorld);
-
-    // Set up debug visualization timer
-    if (bShowGridVisualization)
+    UWorld* World = GetWorld();
+    if (!World)
     {
-        InWorld.GetTimerManager().SetTimer(
-            VisualizationTimerHandle,
-            this,
-            &UKalkiGridManager::DrawDebugGrid,
-            0.1f, // Every 0.1 seconds
-            true  // Loop
-        );
+        return false;
     }
+
+    // In standalone or server, we have authority
+    // In client, we don't
+    ENetMode NetMode = World->GetNetMode();
+    return NetMode == NM_Standalone || NetMode == NM_DedicatedServer || NetMode == NM_ListenServer;
 }
 
-void UKalkiGridManager::RegisterTile(AKalkiGridTile* Tile)
+void UKalkiGridManager::CreateGrid(int32 SizeX, int32 SizeY, float InTileSize, const FVector& Origin)
 {
-    if (!Tile)
+    // Only server can create grid
+    if (!HasGridAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("KalkiGridManager: Attempted to register null tile"));
+        KalkiLog::Grid(TEXT("CreateGrid called on client - ignoring"), EKalkiLogSeverity::Warning);
         return;
     }
 
-    FIntPoint GridPos = Tile->GetGridPosition();
+    // Clear existing grid
+    ClearGrid();
 
-    // Check if position is already occupied
-    if (GridTiles.Contains(GridPos))
+    // Validate parameters
+    if (SizeX <= 0 || SizeY <= 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("KalkiGridManager: Tile already exists at position (%d, %d)"), 
-            GridPos.X, GridPos.Y);
+        KalkiLog::Grid(TEXT("Invalid grid size"), EKalkiLogSeverity::Error);
         return;
     }
 
-    GridTiles.Add(GridPos, Tile);
-    
-    UE_LOG(LogTemp, Verbose, TEXT("KalkiGridManager: Registered tile at (%d, %d)"), 
-        GridPos.X, GridPos.Y);
-}
-
-void UKalkiGridManager::UnregisterTile(AKalkiGridTile* Tile)
-{
-    if (!Tile)
+    if (InTileSize <= 0.0f)
     {
+        KalkiLog::Grid(TEXT("Invalid tile size"), EKalkiLogSeverity::Error);
         return;
     }
 
-    FIntPoint GridPos = Tile->GetGridPosition();
-    GridTiles.Remove(GridPos);
-    
-    UE_LOG(LogTemp, Verbose, TEXT("KalkiGridManager: Unregistered tile at (%d, %d)"), 
-        GridPos.X, GridPos.Y);
-}
+    // Store parameters
+    GridSizeX = SizeX;
+    GridSizeY = SizeY;
+    TileSize = InTileSize;
+    GridOrigin = Origin;
 
-AKalkiGridTile* UKalkiGridManager::GetTileAt(const FIntPoint& GridCoords) const
-{
-    if (const TObjectPtr<AKalkiGridTile>* TilePtr = GridTiles.Find(GridCoords))
+    // Create tiles
+    GridTiles.Reserve(SizeX * SizeY);
+
+    for (int32 X = 0; X < SizeX; ++X)
     {
-        return *TilePtr;
+        for (int32 Y = 0; Y < SizeY; ++Y)
+        {
+            FKalkiGridCoord Coord(X, Y);
+            FVector WorldPos = CoordToWorldPosition(Coord);
+
+            FKalkiGridTile Tile(Coord, WorldPos);
+            GridTiles.Add(Coord, Tile);
+        }
     }
-    
-    return nullptr;
+
+    KalkiLog::Grid(
+        FString::Printf(TEXT("Grid created: %dx%d, TileSize=%.1f, Origin=%s [Authority: %s]"), 
+            SizeX, SizeY, InTileSize, *Origin.ToString(),
+            HasGridAuthority() ? TEXT("Server") : TEXT("Client"))
+    );
 }
 
-AKalkiGridTile* UKalkiGridManager::GetTileAtWorldLocation(const FVector& WorldLocation) const
+void UKalkiGridManager::ClearGrid()
 {
-    FIntPoint GridCoords = WorldToGrid(WorldLocation);
-    return GetTileAt(GridCoords);
+    // Only server can clear grid
+    if (!HasGridAuthority())
+    {
+        KalkiLog::Grid(TEXT("ClearGrid called on client - ignoring"), EKalkiLogSeverity::Warning);
+        return;
+    }
+
+    GridTiles.Empty();
+    GridSizeX = 0;
+    GridSizeY = 0;
+    TileSize = 100.0f;
+    GridOrigin = FVector::ZeroVector;
+
+    KalkiLog::Grid(TEXT("Grid cleared"));
 }
 
-bool UKalkiGridManager::IsValidGridPosition(const FIntPoint& GridCoords) const
+bool UKalkiGridManager::IsValidCoord(const FKalkiGridCoord& Coord) const
 {
-    return GridTiles.Contains(GridCoords);
+    return Coord.X >= 0 && Coord.X < GridSizeX &&
+           Coord.Y >= 0 && Coord.Y < GridSizeY;
 }
 
-bool UKalkiGridManager::IsWalkable(const FIntPoint& GridCoords) const
+FKalkiGridTile UKalkiGridManager::GetTile(const FKalkiGridCoord& Coord) const
 {
-    AKalkiGridTile* Tile = GetTileAt(GridCoords);
+    if (const FKalkiGridTile* Tile = GridTiles.Find(Coord))
+    {
+        return *Tile;
+    }
+
+    // Return invalid tile
+    return FKalkiGridTile();
+}
+
+FKalkiGridTile* UKalkiGridManager::GetTileMutable(const FKalkiGridCoord& Coord)
+{
+    return GridTiles.Find(Coord);
+}
+
+bool UKalkiGridManager::SetTile(const FKalkiGridCoord& Coord, const FKalkiGridTile& Tile)
+{
+    // Only server can modify grid
+    if (!HasGridAuthority())
+    {
+        return false;
+    }
+
+    if (!IsValidCoord(Coord))
+    {
+        return false;
+    }
+
+    GridTiles.Add(Coord, Tile);
+    return true;
+}
+
+bool UKalkiGridManager::IsTileWalkable(const FKalkiGridCoord& Coord) const
+{
+    const FKalkiGridTile* Tile = GridTiles.Find(Coord);
     return Tile ? Tile->IsWalkable() : false;
 }
 
-bool UKalkiGridManager::CanBeOccupied(const FIntPoint& GridCoords) const
+bool UKalkiGridManager::IsTileOccupied(const FKalkiGridCoord& Coord) const
 {
-    AKalkiGridTile* Tile = GetTileAt(GridCoords);
-    return Tile ? Tile->CanBeOccupied() : false;
+    const FKalkiGridTile* Tile = GridTiles.Find(Coord);
+    return Tile ? Tile->IsOccupied() : false;
 }
 
-FIntPoint UKalkiGridManager::WorldToGrid(const FVector& WorldLocation) const
+FVector UKalkiGridManager::CoordToWorldPosition(const FKalkiGridCoord& Coord) const
 {
-    // Offset from grid origin
-    FVector Offset = WorldLocation - GridOrigin;
-    
-    // Convert to grid coordinates
-    int32 X = FMath::RoundToInt(Offset.X / TileSize);
-    int32 Y = FMath::RoundToInt(Offset.Y / TileSize);
-    
-    return FIntPoint(X, Y);
-}
+    // Get tile to check elevation
+    const FKalkiGridTile* Tile = GridTiles.Find(Coord);
+    float TileElevation = Tile ? Tile->Elevation : 0.0f;
 
-FVector UKalkiGridManager::GridToWorld(const FIntPoint& GridCoords) const
-{
-    // Calculate world position (center of tile)
-    float WorldX = GridOrigin.X + (GridCoords.X * TileSize);
-    float WorldY = GridOrigin.Y + (GridCoords.Y * TileSize);
-    float WorldZ = GridOrigin.Z;
-    
+    // Calculate world position from grid coordinate
+    float WorldX = GridOrigin.X + (Coord.X * TileSize);
+    float WorldY = GridOrigin.Y + (Coord.Y * TileSize);
+    float WorldZ = GridOrigin.Z + TileElevation;
+
     return FVector(WorldX, WorldY, WorldZ);
 }
 
-TArray<AKalkiGridTile*> UKalkiGridManager::GetAllTiles() const
+FKalkiGridCoord UKalkiGridManager::WorldPositionToCoord(const FVector& WorldPos) const
 {
-    TArray<AKalkiGridTile*> Tiles;
-    Tiles.Reserve(GridTiles.Num());
+    // Convert world position to grid coordinate (ignoring Z for coordinate)
+    int32 X = FMath::FloorToInt((WorldPos.X - GridOrigin.X) / TileSize);
+    int32 Y = FMath::FloorToInt((WorldPos.Y - GridOrigin.Y) / TileSize);
+
+    return FKalkiGridCoord(X, Y);
+}
+
+bool UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant)
+{
+    // Only server can set occupancy
+    if (!HasGridAuthority())
+    {
+        KalkiLog::Grid(TEXT("SetTileOccupant called on client - ignoring"), EKalkiLogSeverity::Warning);
+        return false;
+    }
+
+    FKalkiGridTile* Tile = GetTileMutable(Coord);
+    if (!Tile)
+    {
+        return false;
+    }
+
+    Tile->Occupant = Occupant;
+    return true;
+}
+
+bool UKalkiGridManager::ClearTileOccupant(const FKalkiGridCoord& Coord)
+{
+    // Only server can clear occupancy
+    if (!HasGridAuthority())
+    {
+        KalkiLog::Grid(TEXT("ClearTileOccupant called on client - ignoring"), EKalkiLogSeverity::Warning);
+        return false;
+    }
+
+    FKalkiGridTile* Tile = GetTileMutable(Coord);
+    if (!Tile)
+    {
+        return false;
+    }
+
+    Tile->Occupant = nullptr;
+    return true;
+}
+
+AActor* UKalkiGridManager::GetTileOccupant(const FKalkiGridCoord& Coord) const
+{
+    const FKalkiGridTile* Tile = GridTiles.Find(Coord);
+    return Tile && Tile->Occupant.IsValid() ? Tile->Occupant.Get() : nullptr;
+}
+
+float UKalkiGridManager::GetElevation(const FKalkiGridCoord& Coord) const
+{
+    const FKalkiGridTile* Tile = GridTiles.Find(Coord);
+    return Tile ? Tile->Elevation : 0.0f;
+}
+
+bool UKalkiGridManager::SetElevation(const FKalkiGridCoord& Coord, float Elevation)
+{
+    // Only server can modify elevation
+    if (!HasGridAuthority())
+    {
+        KalkiLog::Grid(TEXT("SetElevation called on client - ignoring"), EKalkiLogSeverity::Warning);
+        return false;
+    }
+
+    FKalkiGridTile* Tile = GetTileMutable(Coord);
+    if (!Tile)
+    {
+        return false;
+    }
+
+    Tile->Elevation = Elevation;
     
-    for (const auto& Pair : GridTiles)
-    {
-        if (Pair.Value)
-        {
-            Tiles.Add(Pair.Value);
-        }
-    }
+    // Update world position to match new elevation
+    Tile->WorldPosition = CoordToWorldPosition(Coord);
     
-    return Tiles;
+    return true;
 }
 
-void UKalkiGridManager::SetGridVisualizationEnabled(bool bEnabled)
+float UKalkiGridManager::GetElevationDifference(const FKalkiGridCoord& From, const FKalkiGridCoord& To) const
 {
-    bShowGridVisualization = bEnabled;
-
-    UWorld* World = GetWorld();
-    if (!World)
-    {
-        return;
-    }
-
-    if (bEnabled)
-    {
-        // Start drawing
-        World->GetTimerManager().SetTimer(
-            VisualizationTimerHandle,
-            this,
-            &UKalkiGridManager::DrawDebugGrid,
-            0.1f,
-            true
-        );
-    }
-    else
-    {
-        // Stop drawing
-        World->GetTimerManager().ClearTimer(VisualizationTimerHandle);
-    }
+    return GetElevation(To) - GetElevation(From);
 }
 
-void UKalkiGridManager::ToggleGridVisualization()
+bool UKalkiGridManager::IsClimbable(const FKalkiGridCoord& From, const FKalkiGridCoord& To, float MaxClimbHeight) const
 {
-    SetGridVisualizationEnabled(!bShowGridVisualization);
-}
-
-void UKalkiGridManager::DrawDebugGrid()
-{
-    UWorld* World = GetWorld();
-    if (!World || !bShowGridVisualization)
+    float ElevationDiff = GetElevationDifference(From, To);
+    
+    // Can't climb down (that's falling/jumping)
+    if (ElevationDiff < 0.0f)
     {
-        return;
+        return false;
     }
 
-    // Draw grid lines for each tile
-    for (const auto& Pair : GridTiles)
-    {
-        const FIntPoint& GridPos = Pair.Key;
-        AKalkiGridTile* Tile = Pair.Value;
+    // Check if climb is within max height
+    return ElevationDiff <= MaxClimbHeight;
+}
 
-        if (!Tile)
+bool UKalkiGridManager::HasLineOfSight(const FKalkiGridCoord& From, const FKalkiGridCoord& To) const
+{
+    // Simplified line of sight check
+    // Full implementation would check all tiles between From and To
+    // For now, just check if target is visible based on elevation
+    
+    float FromElevation = GetElevation(From);
+    float ToElevation = GetElevation(To);
+    
+    // Higher position can see lower positions
+    // Equal height depends on obstacles (future implementation)
+    
+    // TODO: Implement proper raycast through grid tiles
+    // For now, always return true
+    return true;
+}
+
+TArray<FKalkiGridCoord> UKalkiGridManager::GetNeighbors(const FKalkiGridCoord& Coord, bool bDiagonalAllowed) const
+{
+    TArray<FKalkiGridCoord> Neighbors;
+
+    // Cardinal directions (N, E, S, W)
+    static const FKalkiGridCoord CardinalOffsets[] = {
+        FKalkiGridCoord(0, 1),   // North
+        FKalkiGridCoord(1, 0),   // East
+        FKalkiGridCoord(0, -1),  // South
+        FKalkiGridCoord(-1, 0)   // West
+    };
+
+    // Diagonal directions (NE, SE, SW, NW)
+    static const FKalkiGridCoord DiagonalOffsets[] = {
+        FKalkiGridCoord(1, 1),   // NE
+        FKalkiGridCoord(1, -1),  // SE
+        FKalkiGridCoord(-1, -1), // SW
+        FKalkiGridCoord(-1, 1)   // NW
+    };
+
+    // Add cardinal neighbors
+    for (const FKalkiGridCoord& Offset : CardinalOffsets)
+    {
+        FKalkiGridCoord Neighbor = Coord + Offset;
+        if (IsValidCoord(Neighbor))
         {
-            continue;
+            Neighbors.Add(Neighbor);
         }
-
-        FVector TileCenter = GridToWorld(GridPos);
-        float HalfSize = TileSize * 0.5f;
-
-        // Four corners of the tile
-        FVector Corners[4] = {
-            TileCenter + FVector(-HalfSize, -HalfSize, 0),
-            TileCenter + FVector(HalfSize, -HalfSize, 0),
-            TileCenter + FVector(HalfSize, HalfSize, 0),
-            TileCenter + FVector(-HalfSize, HalfSize, 0)
-        };
-
-        // Draw the tile outline
-        FColor LineColor = Tile->IsWalkable() ? FColor::Green : FColor::Red;
-        if (Tile->IsOccupied())
-        {
-            LineColor = FColor::Yellow;
-        }
-
-        for (int32 i = 0; i < 4; i++)
-        {
-            FVector Start = Corners[i];
-            FVector End = Corners[(i + 1) % 4];
-            DrawDebugLine(World, Start, End, LineColor, false, 0.15f, 0, 2.0f);
-        }
-
-        // Draw grid coordinates
-        DrawDebugString(World, TileCenter + FVector(0, 0, 10), 
-            FString::Printf(TEXT("%d,%d"), GridPos.X, GridPos.Y),
-            nullptr, FColor::White, 0.15f, false, 0.8f);
-    }
-}
-
-void UKalkiGridManager::SpawnDebugGrid(FVector Origin, int32 SizeX, int32 SizeY, TSubclassOf<AKalkiGridTile> TileClass)
-{
-    UWorld* World = GetWorld();
-    if (!World)
-    {
-        UE_LOG(LogTemp, Error, TEXT("KalkiGridManager: Cannot spawn debug grid - no world"));
-        return;
     }
 
-    if (!TileClass)
+    // Add diagonal neighbors if allowed
+    if (bDiagonalAllowed)
     {
-        UE_LOG(LogTemp, Error, TEXT("KalkiGridManager: Cannot spawn debug grid - no tile class specified"));
-        return;
-    }
-
-    // Clear existing tiles first
-    ClearAllTiles();
-
-    // Set grid origin
-    SetGridOrigin(Origin);
-
-    UE_LOG(LogTemp, Log, TEXT("KalkiGridManager: Spawning debug grid %dx%d at %s"), 
-        SizeX, SizeY, *Origin.ToString());
-
-    // Spawn tiles in a grid pattern
-    for (int32 X = 0; X < SizeX; X++)
-    {
-        for (int32 Y = 0; Y < SizeY; Y++)
+        for (const FKalkiGridCoord& Offset : DiagonalOffsets)
         {
-            FIntPoint GridPos(X, Y);
-            FVector WorldPos = GridToWorld(GridPos);
-
-            // Spawn tile
-            FActorSpawnParameters SpawnParams;
-            SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-            AKalkiGridTile* Tile = World->SpawnActor<AKalkiGridTile>(TileClass, WorldPos, FRotator::ZeroRotator, SpawnParams);
-            
-            if (Tile)
+            FKalkiGridCoord Neighbor = Coord + Offset;
+            if (IsValidCoord(Neighbor))
             {
-                Tile->SetGridPosition(GridPos);
-                // Tile will auto-register in BeginPlay
+                Neighbors.Add(Neighbor);
             }
         }
     }
 
-    UE_LOG(LogTemp, Log, TEXT("KalkiGridManager: Debug grid spawned with %d tiles"), GetTileCount());
+    return Neighbors;
 }
 
-void UKalkiGridManager::ClearAllTiles()
+TArray<FKalkiGridCoord> UKalkiGridManager::GetWalkableNeighbors(const FKalkiGridCoord& Coord, bool bDiagonalAllowed) const
 {
-    UWorld* World = GetWorld();
-    if (!World)
+    TArray<FKalkiGridCoord> Neighbors = GetNeighbors(Coord, bDiagonalAllowed);
+    
+    // Filter to only walkable AND climbable
+    Neighbors = Neighbors.FilterByPredicate([this, Coord](const FKalkiGridCoord& Neighbor)
     {
-        return;
-    }
-
-    // Destroy all tile actors
-    TArray<AKalkiGridTile*> TilesToDestroy = GetAllTiles();
-    for (AKalkiGridTile* Tile : TilesToDestroy)
-    {
-        if (Tile)
+        // Must be walkable
+        if (!IsTileWalkable(Neighbor))
         {
-            Tile->Destroy();
+            return false;
+        }
+
+        // Check if elevation change is reasonable
+        float ElevationDiff = GetElevationDifference(Coord, Neighbor);
+        
+        // Can't climb more than 2 levels (200 units)
+        if (ElevationDiff > 200.0f)
+        {
+            return false;
+        }
+
+        // Can't drop more than 3 levels (300 units) without taking damage
+        if (ElevationDiff < -300.0f)
+        {
+            return false;
+        }
+
+        return true;
+    });
+
+    return Neighbors;
+}
+
+TArray<FKalkiGridCoord> UKalkiGridManager::GetTilesInRange(const FKalkiGridCoord& Center, int32 Range, bool bRequireWalkable) const
+{
+    TArray<FKalkiGridCoord> TilesInRange;
+
+    // Iterate through all tiles within Manhattan distance
+    for (int32 X = Center.X - Range; X <= Center.X + Range; ++X)
+    {
+        for (int32 Y = Center.Y - Range; Y <= Center.Y + Range; ++Y)
+        {
+            FKalkiGridCoord Coord(X, Y);
+
+            // Check if valid
+            if (!IsValidCoord(Coord))
+            {
+                continue;
+            }
+
+            // Check if within range (Manhattan distance)
+            if (Coord.DistanceTo(Center) > Range)
+            {
+                continue;
+            }
+
+            // Check walkability if required
+            if (bRequireWalkable && !IsTileWalkable(Coord))
+            {
+                continue;
+            }
+
+            TilesInRange.Add(Coord);
         }
     }
 
-    GridTiles.Empty();
+    return TilesInRange;
+}
+
+float UKalkiGridManager::GetMovementCost(const FKalkiGridCoord& From, const FKalkiGridCoord& To) const
+{
+    const FKalkiGridTile* FromTile = GridTiles.Find(From);
+    const FKalkiGridTile* ToTile = GridTiles.Find(To);
     
-    UE_LOG(LogTemp, Log, TEXT("KalkiGridManager: Cleared all tiles"));
+    if (!FromTile || !ToTile)
+    {
+        return TNumericLimits<float>::Max(); // Invalid tile = infinite cost
+    }
+
+    // Base cost depends on direction
+    bool bIsDiagonal = (From.X != To.X) && (From.Y != To.Y);
+    float BaseCost = bIsDiagonal ? 1.414f : 1.0f; // sqrt(2) for diagonal
+
+    // Apply terrain cost multiplier
+    float TerrainCost = BaseCost * ToTile->MovementCost;
+
+    // Add elevation change cost
+    float ElevationDifference = ToTile->Elevation - FromTile->Elevation;
+    
+    // Climbing up costs more (like stairs/ladders)
+    if (ElevationDifference > 0.0f)
+    {
+        // Cost increases based on height climbed
+        // Each "level" of elevation (100 units) costs extra movement
+        float ElevationLevels = ElevationDifference / 100.0f;
+        float ClimbCost = ElevationLevels * 0.5f; // Climbing 1 level = +0.5 movement cost
+        TerrainCost += ClimbCost;
+    }
+    // Going down is free (or even faster)
+    else if (ElevationDifference < 0.0f)
+    {
+        // Check for dangerous drops
+        float DropDistance = FMath::Abs(ElevationDifference);
+        if (DropDistance > 200.0f) // More than 2 levels
+        {
+            // Prevent pathfinding through dangerous drops
+            // (Can still jump, but pathfinder won't choose it automatically)
+            TerrainCost += 10.0f; // High cost = avoid
+        }
+    }
+
+    return TerrainCost;
+}
+
+FKalkiGridPath UKalkiGridManager::FindPath(const FKalkiGridCoord& Start, const FKalkiGridCoord& End, bool bDiagonalAllowed)
+{
+    FKalkiGridPath Path;
+
+    // Validate inputs
+    if (!IsValidCoord(Start) || !IsValidCoord(End))
+    {
+        KalkiLog::Grid(TEXT("FindPath: Invalid start or end coordinate"), EKalkiLogSeverity::Warning);
+        return Path;
+    }
+
+    if (!IsTileWalkable(Start) || !IsTileWalkable(End))
+    {
+        KalkiLog::Grid(TEXT("FindPath: Start or end tile is not walkable"), EKalkiLogSeverity::Warning);
+        return Path;
+    }
+
+    // If start == end, return path with just that tile
+    if (Start == End)
+    {
+        Path.Waypoints.Add(Start);
+        Path.TotalCost = 0.0f;
+        Path.bIsValid = true;
+        return Path;
+    }
+
+    // A* pathfinding implementation
+    // We'll implement this in Phase 3
+    // For now, return invalid path
+    KalkiLog::Grid(TEXT("FindPath: A* pathfinding not yet implemented"));
+
+    return Path;
 }

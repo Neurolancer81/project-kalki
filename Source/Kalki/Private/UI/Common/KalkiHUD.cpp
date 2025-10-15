@@ -27,32 +27,20 @@ void AKalkiHUD::BeginPlay()
         return;
     }
 
-    // Register and initialize ViewModels
+    // Register ViewModels
     UIManager->RegisterViewModelClass(UKalkiCombatLogViewModel::StaticClass());
+
+    // Initialize ViewModels
     UIManager->InitializeViewModels();
 
     // Set global theme
     if (DefaultTheme)
     {
         UIManager->SetGlobalTheme(DefaultTheme);
-        KalkiLog::System(TEXT("KalkiHUD - Global theme set"), EKalkiLogSeverity::Log, this);
-    }
-    else
-    {
-        KalkiLog::System(TEXT("KalkiHUD - No default theme set"), EKalkiLogSeverity::Warning, this);
     }
 
     // Create mode UIs
     CreateModeUIs();
-    CurrentMode = EKalkiGameMode::None;
-
-    // ⭐ CHANGE: Start with both collapsed, switch to combat for testing
-    // Later you can decide which mode to start in, or leave both hidden
-    SwitchToCombatMode();  // Or SwitchToStrategyMode(), or neither!
-    
-    // ⭐ OR: Leave both hidden initially (manual switch required)
-    // CurrentMode = EKalkiGameMode::None;
-    // KalkiLog::System(TEXT("KalkiHUD initialized - both modes hidden"), EKalkiLogSeverity::Log, this);
 
     KalkiLog::System(TEXT("KalkiHUD initialized"), EKalkiLogSeverity::Log, this);
 }
@@ -71,7 +59,7 @@ void AKalkiHUD::CreateModeUIs()
         if (StrategyUI)
         {
             StrategyUI->AddToViewport(0);
-            StrategyUI->SetVisibility(ESlateVisibility::Collapsed);  // ⭐ Explicitly collapsed
+            StrategyUI->SetVisibility(ESlateVisibility::Collapsed);
             KalkiLog::System(TEXT("KalkiHUD - Strategy UI created (collapsed)"), EKalkiLogSeverity::Log, this);
         }
         else
@@ -92,7 +80,7 @@ void AKalkiHUD::CreateModeUIs()
         if (CombatUI)
         {
             CombatUI->AddToViewport(0);
-            CombatUI->SetVisibility(ESlateVisibility::Collapsed);  // ⭐ Explicitly collapsed
+            CombatUI->SetVisibility(ESlateVisibility::Collapsed);
             KalkiLog::System(TEXT("KalkiHUD - Combat UI created (collapsed)"), EKalkiLogSeverity::Log, this);
         }
         else

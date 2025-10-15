@@ -10,6 +10,15 @@ void UKalkiCombatUI::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	// Pass ViewModel to child widget (CombatLogWidget)
+	if (CombatLogWidget)
+	{
+		if (UKalkiViewModelBase* VM = GetViewModel<UKalkiViewModelBase>())
+		{
+			CombatLogWidget->SetViewModel(VM);
+		}
+	}
+
 	KalkiLog::System(TEXT("CombatUI constructed"), EKalkiLogSeverity::Log, this);
 }
 
@@ -27,7 +36,6 @@ void UKalkiCombatUI::OnModeEntered()
 	// Initialize combat widgets
 	if (CombatLogWidget)
 	{
-		// Combat log ViewModel will handle starting combat session
 		KalkiLog::System(TEXT("Combat log ready"), EKalkiLogSeverity::Log, this);
 	}
 
@@ -42,6 +50,4 @@ void UKalkiCombatUI::OnModeExited()
 
 	// Cleanup combat widgets (if needed)
 	// Most widgets just hide and retain state
-
-	// Combat log stays in memory (keeps history until cleared)
 }

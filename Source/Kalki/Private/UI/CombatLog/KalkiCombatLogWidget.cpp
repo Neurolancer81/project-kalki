@@ -5,6 +5,7 @@
 #include "UI/CombatLog/KalkiCombatLogWidget.h"
 #include "UI/CombatLog/KalkiCombatLogViewModel.h"
 #include "UI/CombatLog/KalkiLogMessageWidget.h"
+#include "UI/CombatLog/KalkiCombatLogTypes.h"
 #include "Components/ScrollBox.h"
 #include "Components/Button.h"
 #include "Logging/KalkiLog.h"
@@ -19,12 +20,6 @@ void UKalkiCombatLogWidget::OnViewModelSet()
         KalkiLog::System(TEXT("CombatLogWidget - Invalid ViewModel type"), EKalkiLogSeverity::Error, this);
         return;
     }
-
-    KalkiLog::System(
-    FString::Printf(TEXT("CombatLogWidget - ViewModel bound successfully. Current messages: %d"), 
-        CombatLogVM->GetMessageCount()),
-    EKalkiLogSeverity::Log, 
-    this);
 
     // Bind to ViewModel events
     CombatLogVM->OnCombatLogUpdated.AddDynamic(this, &UKalkiCombatLogWidget::OnCombatLogUpdated);
@@ -42,8 +37,6 @@ void UKalkiCombatLogWidget::OnViewModelSet()
 
     // Initial display
     RefreshMessages();
-
-    KalkiLog::System(TEXT("CombatLogWidget - ViewModel bound"), EKalkiLogSeverity::Log, this);
 }
 
 void UKalkiCombatLogWidget::OnViewModelCleared()

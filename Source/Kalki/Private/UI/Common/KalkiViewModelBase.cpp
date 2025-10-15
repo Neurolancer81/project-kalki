@@ -88,14 +88,19 @@ void UKalkiViewModelBase::SetEnabled(bool bInEnabled)
 
 UWorld* UKalkiViewModelBase::GetWorld() const
 {
-	// ViewModels are owned by UIManager (a WorldSubsystem)
-	// Get World from our Outer
-	if (const UObject* Outer = GetOuter())
+	// Check if this object is still valid
+	if (!IsValid(this))
 	{
-		return Outer->GetWorld();
+		return nullptr;
 	}
-    
-	return nullptr;
+
+	const UObject* Outer = GetOuter();
+	if (!Outer || !IsValid(Outer))
+	{
+		return nullptr;
+	}
+
+	return Outer->GetWorld();
 }
 
 void UKalkiViewModelBase::OnInitialize()

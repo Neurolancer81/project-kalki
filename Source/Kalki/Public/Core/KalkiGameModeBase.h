@@ -17,6 +17,9 @@ class KALKI_API AKalkiGameModeBase : public AGameModeBase
 public:
 	AKalkiGameModeBase();
 
+	// Override to allow cheat manager on clients (DEV ONLY)
+	virtual bool AllowCheats(APlayerController* P) override;
+
 protected:
 	virtual void BeginPlay() override;
 

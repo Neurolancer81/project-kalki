@@ -76,10 +76,11 @@ struct FKalkiCharacterData
 UENUM(BlueprintType)
 enum class EKalkiTerrainType : uint8
 {
-	Normal      UMETA(DisplayName = "Normal"),
-	Difficult   UMETA(DisplayName = "Difficult Terrain"),
-	Wall        UMETA(DisplayName = "Wall"),
-	Water       UMETA(DisplayName = "Water"),
-	Hazard      UMETA(DisplayName = "Hazard"),
-	Cover       UMETA(DisplayName = "Cover")
+	Normal				UMETA(DisplayName = "Normal"),
+	Difficult			UMETA(DisplayName = "Difficult Terrain"),
+	GreaterDifficult	UMETA(DisplayName = "GreaterDifficult Terrain"),
+	Wall				UMETA(DisplayName = "Wall"),
+	Water				UMETA(DisplayName = "Water"),
+	Hazard				UMETA(DisplayName = "Hazard"),
+	Cover				UMETA(DisplayName = "Cover")
 };

@@ -1,5 +1,7 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
+// Public/Cheats/KalkiCheatManager.h
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -7,9 +9,8 @@
 #include "KalkiCheatManager.generated.h"
 
 /**
- * Cheat Manager for Kalki
- * Contains all debug/test commands
- * Automatically excluded from shipping builds
+ * Cheat Manager for development/testing
+ * Provides console commands for testing game systems
  */
 UCLASS()
 class KALKI_API UKalkiCheatManager : public UCheatManager
@@ -17,39 +18,51 @@ class KALKI_API UKalkiCheatManager : public UCheatManager
     GENERATED_BODY()
 
 public:
-    // ============================================
-    // Combat Testing
-    // ============================================
+    // === Combat Log Testing ===
+    
+    UFUNCTION(Exec, Category = "Kalki|CombatLog")
+    void StartTestCombatLog();
 
-    /** Start a combat session with optional name */
-    UFUNCTION(Exec, Category = "Kalki|Combat")
-    void StartCombat(const FString& CombatName = TEXT("Test Combat"));
+    UFUNCTION(Exec, Category = "Kalki|CombatLog")
+    void EndTestCombatLog();
 
-    /** End current combat session */
-    UFUNCTION(Exec, Category = "Kalki|Combat")
-    void EndCombat();
+    UFUNCTION(Exec, Category = "Kalki|CombatLog")
+    void LogTestMessage(const FString& Message);
 
-    /** Test combat log with sample messages */
-    UFUNCTION(Exec, Category = "Kalki|Combat")
-    void TestCombatLog();
-
-    /** Log a custom test message */
-    UFUNCTION(Exec, Category = "Kalki|Combat")
-    void LogMessage(const FString& Message);
-
-    // ============================================
-    // UI Testing
-    // ============================================
-
-    /** Switch to combat mode */
+    // === UI Testing ===
+    
     UFUNCTION(Exec, Category = "Kalki|UI")
     void ShowCombatUI();
 
-    /** Switch to strategy mode */
     UFUNCTION(Exec, Category = "Kalki|UI")
     void ShowStrategyUI();
 
-    /** Toggle between modes */
     UFUNCTION(Exec, Category = "Kalki|UI")
     void ToggleUIMode();
+
+    // === Grid Testing ===
+    
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void CreateTestGrid(int32 SizeX = 20, int32 SizeY = 20);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void PrintGridInfo();
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void PrintTileInfo(int32 X, int32 Y);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void SetTileElevation(int32 X, int32 Y, float Elevation);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void CreateTestPlatform(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float Elevation);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void CreateTestRamp(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float StartElevation, float EndElevation);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void PrintNeighbors(int32 X, int32 Y, bool bDiagonalAllowed = true);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void PrintTilesInRange(int32 X, int32 Y, int32 Range);
 };
