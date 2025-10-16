@@ -75,5 +75,22 @@ public:
     UFUNCTION(Exec, Category = "Kalki|Grid")
     void HideGridVisualizer();
 
+    // Grid selection commands
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void SelectGridTile(int32 X, int32 Y);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void DeselectGridTile();
+
+    // Movement range preview commands
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void ShowGridMovementRange(int32 X, int32 Y, int32 Range);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void HideGridMovementRange();
+
+    // Scale grid
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void SetGridTileScale(float Scale);
     
 };

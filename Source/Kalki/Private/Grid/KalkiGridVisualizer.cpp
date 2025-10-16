@@ -148,8 +148,9 @@ void AKalkiGridVisualizer::InitializeGrid()
             FVector WorldPos = Tile.WorldPosition;
             WorldPos.Z += TileZOffset;
 
-            // Create transform
-            FTransform TileTransform(FRotator::ZeroRotator, WorldPos, FVector(1.0f));
+            // ⭐ Create transform with scale
+            FVector Scale(TileScale, TileScale, 1.0f); // Scale X and Y, keep Z at 1.0
+            FTransform TileTransform(FRotator::ZeroRotator, WorldPos, Scale);
 
             // Add instance
             int32 InstanceIndex = TileInstances->AddInstance(TileTransform, true);

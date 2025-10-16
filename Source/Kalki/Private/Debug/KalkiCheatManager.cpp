@@ -10,6 +10,7 @@
 #include "UI/Common/KalkiHUD.h"
 #include "Grid/KalkiGridManager.h"
 #include "Grid/KalkiGridTypes.h"
+#include "Grid/KalkiGridVisualizer.h"
 #include "Level/KalkiLevelManager.h"
 
 // === Combat Log Testing ===
@@ -381,4 +382,102 @@ void UKalkiCheatManager::HideGridVisualizer()
     }
     
     KalkiLog::Grid(TEXT("No LevelManager found"), EKalkiLogSeverity::Warning);
+}
+
+void UKalkiCheatManager::SelectGridTile(int32 X, int32 Y)
+{
+    // Find grid visualizer in world
+    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
+    {
+        AKalkiGridVisualizer* Visualizer = *It;
+        if (Visualizer)
+        {
+            FKalkiGridCoord Coord(X, Y);
+            Visualizer->SelectTile(Coord);
+            
+            KalkiLog::Grid(
+                FString::Printf(TEXT("Selected grid tile: (%d, %d)"), X, Y)
+            );
+            return;
+        }
+    }
+    
+    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
+}
+
+void UKalkiCheatManager::DeselectGridTile()
+{
+    // Find grid visualizer in world
+    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
+    {
+        AKalkiGridVisualizer* Visualizer = *It;
+        if (Visualizer)
+        {
+            Visualizer->DeselectTile();
+            
+            KalkiLog::Grid(TEXT("Deselected grid tile"));
+            return;
+        }
+    }
+    
+    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
+}
+
+void UKalkiCheatManager::ShowGridMovementRange(int32 X, int32 Y, int32 Range)
+{
+    // Find grid visualizer in world
+    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
+    {
+        AKalkiGridVisualizer* Visualizer = *It;
+        if (Visualizer)
+        {
+            FKalkiGridCoord Coord(X, Y);
+            Visualizer->ShowMovementRange(Coord, Range);
+            
+            KalkiLog::Grid(
+                FString::Printf(TEXT("Showing movement range: %d tiles from (%d, %d)"), Range, X, Y)
+            );
+            return;
+        }
+    }
+    
+    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
+}
+
+void UKalkiCheatManager::HideGridMovementRange()
+{
+    // Find grid visualizer in world
+    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
+    {
+        AKalkiGridVisualizer* Visualizer = *It;
+        if (Visualizer)
+        {
+            Visualizer->HideMovementRange();
+            
+            KalkiLog::Grid(TEXT("Movement range hidden"));
+            return;
+        }
+    }
+    
+    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
+}
+
+void UKalkiCheatManager::SetGridTileScale(float Scale)
+{
+    // Clamp to reasonable values
+    Scale = FMath::Clamp(Scale, 0.1f, 1.0f);
+    
+    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
+    {
+        AKalkiGridVisualizer* Visualizer = *It;
+        if (Visualizer)
+        {
+            // This would require exposing TileScale and recreating grid
+            // Easier to just set it in Blueprint before PIE
+            KalkiLog::Grid(
+                FString::Printf(TEXT("SetGridTileScale: %.2f (requires grid recreation)"), Scale)
+            );
+            return;
+        }
+    }
 }

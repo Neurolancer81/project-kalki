@@ -62,6 +62,10 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Grid|Material")
     TObjectPtr<UMaterialInterface> TileMaterial;
 
+    // Scale factor for tiles (0.9 = 10% gap, 0.85 = 15% gap)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid|Mesh", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+    float TileScale = 0.9f;
+
     // Dynamic material instance (for runtime color changes)
     UPROPERTY()
     TObjectPtr<UMaterialInstanceDynamic> DynamicTileMaterial;
