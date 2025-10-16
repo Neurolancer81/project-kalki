@@ -3,7 +3,7 @@
 // Private/UI/KalkiWidgetThemedBase.cpp
 
 
-#include "UI/Widgets/KalkiWidgetBase.h"
+#include "UI/Common/KalkiWidgetBase.h"
 
 #include "UI/Common/KalkiWidgetTheme.h"
 #include "UI/Common/KalkiUIManager.h"

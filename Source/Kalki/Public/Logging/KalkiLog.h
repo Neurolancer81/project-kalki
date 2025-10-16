@@ -44,6 +44,8 @@ namespace KalkiLog
     
     KALKI_API void Debug(const FString& Message, EKalkiLogSeverity Severity = EKalkiLogSeverity::Verbose, const UObject* WorldContextObject = nullptr);
 
+    KALKI_API void UI(const FString& Message, EKalkiLogSeverity Severity = EKalkiLogSeverity::Log, const UObject* WorldContextObject = nullptr);
+
     // Advanced: Log with full message struct (for metadata)
     KALKI_API void LogMessage(const FKalkiLogMessage& Message, const UObject* WorldContextObject = nullptr);
 

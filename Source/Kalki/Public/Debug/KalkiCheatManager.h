@@ -55,6 +55,9 @@ public:
     void SetTileElevation(int32 X, int32 Y, float Elevation);
 
     UFUNCTION(Exec, Category = "Kalki|Grid")
+    void SetTileWalkable(int32 X, int32 Y, bool bWalkable);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
     void CreateTestPlatform(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float Elevation);
 
     UFUNCTION(Exec, Category = "Kalki|Grid")
@@ -65,4 +68,12 @@ public:
 
     UFUNCTION(Exec, Category = "Kalki|Grid")
     void PrintTilesInRange(int32 X, int32 Y, int32 Range);
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void ShowGridVisualizer();
+
+    UFUNCTION(Exec, Category = "Kalki|Grid")
+    void HideGridVisualizer();
+
+    
 };

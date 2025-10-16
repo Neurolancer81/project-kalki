@@ -120,6 +120,11 @@ namespace KalkiLog
         LogToChannel(EKalkiLogChannel::Debug, Message, Severity, WorldContextObject);
     }
 
+    void UI(const FString& Message, EKalkiLogSeverity Severity, const UObject* WorldContextObject)
+    {
+        LogToChannel(EKalkiLogChannel::UI, Message, Severity, WorldContextObject);
+    }
+
     void LogMessage(const FKalkiLogMessage& Message, const UObject* WorldContextObject)
     {
         UKalkiLogSubsystem* LogSubsystem = GetLogSubsystem(WorldContextObject);

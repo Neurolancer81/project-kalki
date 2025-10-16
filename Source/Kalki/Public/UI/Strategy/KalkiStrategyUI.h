@@ -5,7 +5,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UI/Widgets/KalkiViewModelWidget.h"
+#include "UI/Common/KalkiViewModelWidget.h"
 #include "KalkiStrategyUI.generated.h"
 
 /**

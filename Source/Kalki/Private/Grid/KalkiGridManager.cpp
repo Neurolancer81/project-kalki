@@ -86,6 +86,9 @@ void UKalkiGridManager::CreateGrid(int32 SizeX, int32 SizeY, float InTileSize, c
             SizeX, SizeY, InTileSize, *Origin.ToString(),
             HasGridAuthority() ? TEXT("Server") : TEXT("Client"))
     );
+
+    // Broadcast grid created event
+    OnGridCreated.Broadcast();
 }
 
 void UKalkiGridManager::ClearGrid()
@@ -96,6 +99,9 @@ void UKalkiGridManager::ClearGrid()
         KalkiLog::Grid(TEXT("ClearGrid called on client - ignoring"), EKalkiLogSeverity::Warning);
         return;
     }
+
+    // Broadcast grid cleared event
+    OnGridCleared.Broadcast();
 
     GridTiles.Empty();
     GridSizeX = 0;
@@ -142,6 +148,11 @@ bool UKalkiGridManager::SetTile(const FKalkiGridCoord& Coord, const FKalkiGridTi
     }
 
     GridTiles.Add(Coord, Tile);
+
+    // Broadcast tile changed event
+    OnTileChanged.Broadcast(Coord);
+    
+    
     return true;
 }
 
@@ -196,6 +207,10 @@ bool UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Oc
     }
 
     Tile->Occupant = Occupant;
+
+    // Broadcast tile changed event
+    OnTileChanged.Broadcast(Coord);
+    
     return true;
 }
 
@@ -249,6 +264,9 @@ bool UKalkiGridManager::SetElevation(const FKalkiGridCoord& Coord, float Elevati
     
     // Update world position to match new elevation
     Tile->WorldPosition = CoordToWorldPosition(Coord);
+
+    // Broadcast tile changed event
+    OnTileChanged.Broadcast(Coord);
     
     return true;
 }
@@ -482,4 +500,45 @@ FKalkiGridPath UKalkiGridManager::FindPath(const FKalkiGridCoord& Start, const F
     KalkiLog::Grid(TEXT("FindPath: A* pathfinding not yet implemented"));
 
     return Path;
+}
+
+TSet<FKalkiGridCoord> UKalkiGridManager::GetTilesInRangeEuclidean(const FKalkiGridCoord& Origin, float Range) const
+{
+    TSet<FKalkiGridCoord> TilesInRange;
+
+    if (!IsValidCoord(Origin))
+    {
+        return TilesInRange;
+    }
+
+    // Calculate bounding box based on range
+    int32 MaxOffset = FMath::CeilToInt(Range);
+
+    // Check all tiles within bounding box
+    for (int32 X = Origin.X - MaxOffset; X <= Origin.X + MaxOffset; ++X)
+    {
+        for (int32 Y = Origin.Y - MaxOffset; Y <= Origin.Y + MaxOffset; ++Y)
+        {
+            FKalkiGridCoord Coord(X, Y);
+
+            // Skip invalid coords
+            if (!IsValidCoord(Coord))
+            {
+                continue;
+            }
+
+            // Calculate Euclidean distance
+            float DX = static_cast<float>(Coord.X - Origin.X);
+            float DY = static_cast<float>(Coord.Y - Origin.Y);
+            float Distance = FMath::Sqrt(DX * DX + DY * DY);
+
+            // If within range, add to set
+            if (Distance <= Range)
+            {
+                TilesInRange.Add(Coord);
+            }
+        }
+    }
+
+    return TilesInRange;
 }

@@ -9,6 +9,11 @@
 #include "Grid/KalkiGridTypes.h"
 #include "KalkiGridManager.generated.h"
 
+// Grid lifecycle events
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGridCreated);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGridCleared);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTileChanged, const FKalkiGridCoord&, Coord);
+
 /**
  * Grid Manager Subsystem
  * Manages the tactical grid, pathfinding, and tile queries
@@ -115,6 +120,22 @@ public:
     // Authority check
     UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
     bool HasGridAuthority() const;
+
+    /** Event fired when grid is created and ready */
+    UPROPERTY(BlueprintAssignable, Category = "Kalki|Grid|Events")
+    FOnGridCreated OnGridCreated;
+
+    /** Event fired when grid is cleared */
+    UPROPERTY(BlueprintAssignable, Category = "Kalki|Grid|Events")
+    FOnGridCleared OnGridCleared;
+
+    /** Event fired when a tile is modified (elevation, walkability, etc.) */
+    UPROPERTY(BlueprintAssignable, Category = "Kalki|Grid|Events")
+    FOnTileChanged OnTileChanged;
+
+    // Get all tiles within a certain range (Euclidean distance)
+    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
+    TSet<FKalkiGridCoord> GetTilesInRangeEuclidean(const FKalkiGridCoord& Origin, float Range) const;
 
 protected:
     // Grid storage

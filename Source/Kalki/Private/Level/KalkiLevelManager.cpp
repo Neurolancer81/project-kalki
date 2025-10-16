@@ -4,6 +4,7 @@
 
 #include "Level/KalkiLevelManager.h"
 #include "Grid/KalkiGridManager.h"
+#include "Grid/KalkiGridVisualizer.h"
 #include "Grid/KalkiGridTypes.h"
 #include "Logging/KalkiLog.h"
 #include "Net/UnrealNetwork.h"
@@ -14,8 +15,8 @@ AKalkiLevelManager::AKalkiLevelManager()
     
     // Enable replication
     bReplicates = true;
-    bAlwaysRelevant = true; // Always replicate to all clients
-    NetUpdateFrequency = 1.0f; // Low frequency since grid config rarely changes
+    bAlwaysRelevant = true;    
+    SetNetUpdateFrequency(1.0f);
 }
 
 void AKalkiLevelManager::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -35,7 +36,6 @@ void AKalkiLevelManager::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 
 bool AKalkiLevelManager::IsNetRelevantFor(const AActor* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const
 {
-    // Always relevant for all players
     return true;
 }
 
@@ -51,8 +51,10 @@ void AKalkiLevelManager::BeginPlay()
         return;
     }
 
-    // Only server creates grid (clients will build deterministically from replicated config)
-    // In standalone or as server
+    // ⭐ Bind to grid created event (everyone listens)
+    GridManager->OnGridCreated.AddDynamic(this, &AKalkiLevelManager::OnGridCreated);
+
+    // Only server creates grid (clients will build from replicated config)
     if (HasAuthority())
     {
         if (bAutoCreateGrid)
@@ -69,9 +71,22 @@ void AKalkiLevelManager::BeginPlay()
     );
 }
 
+void AKalkiLevelManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    // Unbind from events
+    if (GridManager)
+    {
+        GridManager->OnGridCreated.RemoveDynamic(this, &AKalkiLevelManager::OnGridCreated);
+    }
+
+    // Clean up visualizer
+    DestroyGridVisualizer();
+
+    Super::EndPlay(EndPlayReason);
+}
+
 void AKalkiLevelManager::InitializeLevel()
 {
-    // Only server initializes
     if (!HasAuthority())
     {
         KalkiLog::System(TEXT("InitializeLevel called on client - ignoring"), EKalkiLogSeverity::Warning, this);
@@ -80,7 +95,7 @@ void AKalkiLevelManager::InitializeLevel()
 
     KalkiLog::System(TEXT("Initializing level..."), EKalkiLogSeverity::Log, this);
 
-    // Create grid
+    // Create grid (will trigger OnGridCreated event)
     CreateGrid();
 
     // Future: Spawn characters, set up encounters, etc.
@@ -88,7 +103,6 @@ void AKalkiLevelManager::InitializeLevel()
 
 void AKalkiLevelManager::CreateGrid()
 {
-    // Only server creates grid
     if (!HasAuthority())
     {
         KalkiLog::System(TEXT("CreateGrid called on client - ignoring"), EKalkiLogSeverity::Warning, this);
@@ -101,6 +115,7 @@ void AKalkiLevelManager::CreateGrid()
         return;
     }
 
+    // This will trigger OnGridCreated event when complete
     GridManager->CreateGrid(GridSizeX, GridSizeY, TileSize, GridOrigin);
 
     KalkiLog::System(
@@ -110,9 +125,91 @@ void AKalkiLevelManager::CreateGrid()
     );
 }
 
+void AKalkiLevelManager::OnGridCreated()
+{
+    // ⭐ Event-based: Grid is ready, spawn visualizer
+    KalkiLog::System(
+        FString::Printf(TEXT("OnGridCreated event received [Role: %s]"), 
+            HasAuthority() ? TEXT("Server") : TEXT("Client")),
+        EKalkiLogSeverity::Log,
+        this
+    );
+
+    if (bAutoSpawnVisualizer && GridVisualizerClass)
+    {
+        SpawnGridVisualizer();
+    }
+}
+
+void AKalkiLevelManager::SpawnGridVisualizer()
+{
+    if (!GridVisualizerClass)
+    {
+        KalkiLog::System(TEXT("LevelManager - GridVisualizerClass not set"), EKalkiLogSeverity::Warning, this);
+        return;
+    }
+
+    if (GridVisualizer)
+    {
+        KalkiLog::System(TEXT("LevelManager - GridVisualizer already exists"), EKalkiLogSeverity::Warning, this);
+        return;
+    }
+
+    // Spawn visualizer at grid origin
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    GridVisualizer = GetWorld()->SpawnActor<AKalkiGridVisualizer>(
+        GridVisualizerClass,
+        GridOrigin,
+        FRotator::ZeroRotator,
+        SpawnParams
+    );
+
+    if (GridVisualizer)
+    {
+        KalkiLog::System(TEXT("LevelManager - GridVisualizer spawned"), EKalkiLogSeverity::Log, this);
+
+        // Set initial visibility based on settings
+        // Default to hidden, will show when entering combat mode
+        GridVisualizer->HideGrid();
+    }
+    else
+    {
+        KalkiLog::System(TEXT("LevelManager - Failed to spawn GridVisualizer"), EKalkiLogSeverity::Error, this);
+    }
+}
+
+void AKalkiLevelManager::DestroyGridVisualizer()
+{
+    if (GridVisualizer)
+    {
+        GridVisualizer->Destroy();
+        GridVisualizer = nullptr;
+        
+        KalkiLog::System(TEXT("LevelManager - GridVisualizer destroyed"), EKalkiLogSeverity::Log, this);
+    }
+}
+
+void AKalkiLevelManager::ShowGridVisualizer()
+{
+    if (GridVisualizer)
+    {
+        GridVisualizer->ShowGrid();
+    }
+}
+
+void AKalkiLevelManager::HideGridVisualizer()
+{
+    if (GridVisualizer)
+    {
+        GridVisualizer->HideGrid();
+    }
+}
+
 void AKalkiLevelManager::SetTileElevation(int32 X, int32 Y, float Elevation)
 {
-    // Only server can modify
     if (!HasAuthority())
     {
         KalkiLog::System(TEXT("SetTileElevation called on client - ignoring"), EKalkiLogSeverity::Warning, this);
@@ -142,7 +239,6 @@ void AKalkiLevelManager::SetTileElevation(int32 X, int32 Y, float Elevation)
 
 void AKalkiLevelManager::CreatePlatform(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float Elevation)
 {
-    // Only server can modify
     if (!HasAuthority())
     {
         KalkiLog::System(TEXT("CreatePlatform called on client - ignoring"), EKalkiLogSeverity::Warning, this);
@@ -174,7 +270,6 @@ void AKalkiLevelManager::CreatePlatform(int32 StartX, int32 StartY, int32 EndX, 
 
 void AKalkiLevelManager::CreateRamp(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float StartElevation, float EndElevation)
 {
-    // Only server can modify
     if (!HasAuthority())
     {
         KalkiLog::System(TEXT("CreateRamp called on client - ignoring"), EKalkiLogSeverity::Warning, this);
@@ -186,17 +281,13 @@ void AKalkiLevelManager::CreateRamp(int32 StartX, int32 StartY, int32 EndX, int3
         return;
     }
 
-    // Calculate ramp direction and length
     int32 DeltaX = EndX - StartX;
     int32 DeltaY = EndY - StartY;
-    
-    // Determine primary axis (longer distance)
     bool bXAxisLonger = FMath::Abs(DeltaX) >= FMath::Abs(DeltaY);
     int32 Steps = bXAxisLonger ? FMath::Abs(DeltaX) : FMath::Abs(DeltaY);
     
     if (Steps == 0)
     {
-        // Single tile, just set to start elevation
         GridManager->SetElevation(FKalkiGridCoord(StartX, StartY), StartElevation);
         return;
     }

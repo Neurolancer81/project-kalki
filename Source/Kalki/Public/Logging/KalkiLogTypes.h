@@ -24,7 +24,8 @@ enum class EKalkiLogChannel : uint8
     Network     UMETA(DisplayName = "Network"),
     Quest       UMETA(DisplayName = "Quest"),
     Ruleset     UMETA(DisplayName = "Ruleset"),
-    Debug       UMETA(DisplayName = "Debug")
+    Debug       UMETA(DisplayName = "Debug"),
+    UI          UMETA(DisplayName = "UI")
 };
 
 /**

@@ -3,7 +3,7 @@
 
 // Private/UI/KalkiSimpleWidget.cpp
 
-#include "UI/Widgets/KalkiSimpleWidget.h"
+#include "UI/Common/KalkiSimpleWidget.h"
 #include "Logging/KalkiLog.h"
 
 void UKalkiSimpleWidget::NativeConstruct()

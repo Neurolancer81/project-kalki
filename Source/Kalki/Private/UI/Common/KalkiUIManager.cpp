@@ -5,7 +5,7 @@
 
 #include "UI/Common/KalkiUIManager.h"
 #include "UI/Common/KalkiViewModelBase.h"
-#include "UI/Widgets/KalkiViewModelWidget.h"
+#include "UI/Common/KalkiViewModelWidget.h"
 #include "Logging/KalkiLog.h"
 #include "UI/Common/KalkiWidgetTheme.h"
 

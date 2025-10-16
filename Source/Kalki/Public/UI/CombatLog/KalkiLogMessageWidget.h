@@ -5,7 +5,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UI/Widgets/KalkiSimpleWidget.h"  // Changed from Blueprint/UserWidget.h
+#include "UI/Common/KalkiSimpleWidget.h"  // Changed from Blueprint/UserWidget.h
 #include "UI/CombatLog/KalkiCombatLogTypes.h"
 #include "KalkiLogMessageWidget.generated.h"
 

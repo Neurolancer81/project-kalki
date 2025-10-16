@@ -3,11 +3,14 @@
 // Private/Debug/KalkiCheatManager.cpp
 
 #include "Debug/KalkiCheatManager.h"
+
+#include "EngineUtils.h"
 #include "Logging/KalkiLog.h"
 #include "Logging/KalkiLogSubsystem.h"
 #include "UI/Common/KalkiHUD.h"
 #include "Grid/KalkiGridManager.h"
 #include "Grid/KalkiGridTypes.h"
+#include "Level/KalkiLevelManager.h"
 
 // === Combat Log Testing ===
 
@@ -170,6 +173,49 @@ void UKalkiCheatManager::SetTileElevation(int32 X, int32 Y, float Elevation)
     }
 }
 
+void UKalkiCheatManager::SetTileWalkable(int32 X, int32 Y, bool bWalkable)
+{
+    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
+    if (!GridManager)
+    {
+        KalkiLog::Grid(TEXT("SetTileWalkable - GridManager not found"), EKalkiLogSeverity::Error);
+        return;
+    }
+
+    FKalkiGridCoord Coord(X, Y);
+    
+    if (!GridManager->IsValidCoord(Coord))
+    {
+        KalkiLog::Grid(
+            FString::Printf(TEXT("SetTileWalkable - Invalid coord: (%d, %d)"), X, Y), 
+            EKalkiLogSeverity::Error
+        );
+        return;
+    }
+
+    // Get the tile
+    FKalkiGridTile Tile = GridManager->GetTile(Coord);
+    
+    // Modify walkability
+    Tile.bWalkable = bWalkable;
+    
+    // Set it back (this will trigger OnTileChanged event)
+    if (GridManager->SetTile(Coord, Tile))
+    {
+        KalkiLog::Grid(
+            FString::Printf(TEXT("Set tile (%d, %d) walkable: %s"), 
+                X, Y, bWalkable ? TEXT("Yes") : TEXT("No"))
+        );
+    }
+    else
+    {
+        KalkiLog::Grid(
+            FString::Printf(TEXT("Failed to set tile (%d, %d) walkable"), X, Y), 
+            EKalkiLogSeverity::Error
+        );
+    }
+}
+
 void UKalkiCheatManager::CreateTestPlatform(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float Elevation)
 {
     UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
@@ -303,4 +349,36 @@ void UKalkiCheatManager::PrintTilesInRange(int32 X, int32 Y, int32 Range)
     {
         KalkiLog::System(FString::Printf(TEXT("  ... and %d more"), TilesInRange.Num() - 10));
     }
+}
+
+void UKalkiCheatManager::ShowGridVisualizer()
+{
+    // Find LevelManager in world
+    for (TActorIterator<AKalkiLevelManager> It(GetWorld()); It; ++It)
+    {
+        AKalkiLevelManager* LevelManager = *It;
+        if (LevelManager)
+        {
+            LevelManager->ShowGridVisualizer();
+            KalkiLog::Grid(TEXT("Grid visualizer shown"));
+            return;
+        }
+    }
+    
+    KalkiLog::Grid(TEXT("No LevelManager found"), EKalkiLogSeverity::Warning);
+}
+
+void UKalkiCheatManager::HideGridVisualizer()
+{
+    for (TActorIterator<AKalkiLevelManager> It(GetWorld()); It; ++It)
+    {
+        if (AKalkiLevelManager* LevelManager = *It)
+        {
+            LevelManager->HideGridVisualizer();
+            KalkiLog::Grid(TEXT("Grid visualizer hidden"));
+            return;
+        }
+    }
+    
+    KalkiLog::Grid(TEXT("No LevelManager found"), EKalkiLogSeverity::Warning);
 }
