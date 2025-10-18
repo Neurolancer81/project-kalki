@@ -3,7 +3,7 @@
 
 #include "Core/KalkiGameModeBase.h"
 #include "Characters/KalkiCharacter.h"
-#include "Core/KalkiPlayerController.h"
+#include "Player/KalkiPlayerController.h"
 #include "Core/KalkiPlayerState.h"
 #include "Logging/KalkiLog.h"
 #include "Logging/KalkiLogSubsystem.h"

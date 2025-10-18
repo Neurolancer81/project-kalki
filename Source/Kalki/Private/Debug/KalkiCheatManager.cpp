@@ -3,17 +3,70 @@
 // Private/Debug/KalkiCheatManager.cpp
 
 #include "Debug/KalkiCheatManager.h"
-
 #include "EngineUtils.h"
+#include "AbilitySystem/KalkiAttributeSet.h"
+#include "Characters/KalkiCharacter.h"
+#include "GameFramework/FloatingPawnMovement.h"
 #include "Logging/KalkiLog.h"
 #include "Logging/KalkiLogSubsystem.h"
 #include "UI/Common/KalkiHUD.h"
 #include "Grid/KalkiGridManager.h"
 #include "Grid/KalkiGridTypes.h"
 #include "Grid/KalkiGridVisualizer.h"
+#include "Kismet/GameplayStatics.h"
 #include "Level/KalkiLevelManager.h"
+#include "Player/KalkiPlayerController.h"
+#include "Player/KalkiCameraPawn.h"
+#include "Player/Components/KalkiCharacterSelectionComponent.h"
+#include "Ruleset/KalkiDnD5eRuleset.h"
+#include "UI/CombatLog/KalkiCombatLogTypes.h"
 
 // === Combat Log Testing ===
+
+void UKalkiCheatManager::DrawDebugStats() const
+{
+	APlayerController* Owner = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	if (!Owner) return;
+	AKalkiCharacter* OwningCharacter =  Cast<AKalkiCharacter>(Owner->GetCharacter());
+	UKalkiAttributeSet* AttributeSet = OwningCharacter->GetAttributeSet();
+	if (!AttributeSet) return;
+
+	const FKalkiCharacterData CharacterData = OwningCharacter->GetCharacterData();
+	UKalkiDnD5eRuleset* ActiveRuleset = OwningCharacter->GetActiveRuleSet();
+	
+	FVector Location = OwningCharacter->GetActorLocation() + FVector(0, 0, 100); // Above character
+
+	// ✅ UPDATED - Include grid position
+	FString DebugText = FString::Printf(
+		TEXT("%s (Lvl %d %s)\n")
+		TEXT("Grid: %s\n") // ✅ ADD
+		TEXT("STR: %.0f (%+d)  DEX: %.0f (%+d)  CON: %.0f (%+d)\n")
+		TEXT("INT: %.0f (%+d)  WIS: %.0f (%+d)  CHA: %.0f (%+d)\n")
+		TEXT("HP: %.0f/%.0f  AC: %.0f  Move: %d"), // ✅ ADD Move
+		*CharacterData.CharacterName,
+		CharacterData.Level,
+		*UEnum::GetValueAsString(CharacterData.Class),
+		*IKalkiGridOccupant::Execute_GetGridPosition(this).ToString(), // ✅ Use interface
+		AttributeSet->GetStrength(),
+		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetStrength()) : 0,
+		AttributeSet->GetDexterity(),
+		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetDexterity()) : 0,
+		AttributeSet->GetConstitution(),
+		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetConstitution()) : 0,
+		AttributeSet->GetIntelligence(),
+		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetIntelligence()) : 0,
+		AttributeSet->GetWisdom(),
+		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetWisdom()) : 0,
+		AttributeSet->GetCharisma(),
+		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetCharisma()) : 0,
+		AttributeSet->GetHealth(),
+		AttributeSet->GetMaxHealth(),
+		AttributeSet->GetArmorClass(),
+		OwningCharacter->GetMovementRange() // ✅ ADD
+	);
+
+	DrawDebugString(GetWorld(), Location, DebugText, nullptr, FColor::White, 0.0f, true, 1.2f);
+}
 
 void UKalkiCheatManager::StartTestCombatLog()
 {
@@ -481,3 +534,364 @@ void UKalkiCheatManager::SetGridTileScale(float Scale)
         }
     }
 }
+
+// ========================================
+// CAMERA COMMANDS
+// ========================================
+
+void UKalkiCheatManager::SetCameraDistance(float Distance)
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->SetZoomDistance(Distance);
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Camera distance set to %.0f"), Distance)
+	);
+}
+
+void UKalkiCheatManager::SetCameraPitch(float Pitch)
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->SetCameraPitch(Pitch);
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Camera pitch set to %.1f°"), Pitch)
+	);
+}
+
+void UKalkiCheatManager::SetCameraYaw(float Yaw)
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->SetCameraYaw(Yaw);
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Camera yaw set to %.1f°"), Yaw)
+	);
+}
+
+void UKalkiCheatManager::TeleportCamera(float X, float Y, float Z)
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	FVector NewLocation(X, Y, Z);
+	CameraPawn->SetActorLocation(NewLocation);
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Camera teleported to %s"), *NewLocation.ToString())
+	);
+}
+
+void UKalkiCheatManager::ToggleCameraBounds()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->bUseCameraBounds = !CameraPawn->bUseCameraBounds;
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Camera bounds %s"), 
+			CameraPawn->bUseCameraBounds ? TEXT("ENABLED") : TEXT("DISABLED"))
+	);
+}
+
+void UKalkiCheatManager::ToggleSmoothRotation()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->bSmoothRotation = !CameraPawn->bSmoothRotation;
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Smooth rotation %s"), 
+			CameraPawn->bSmoothRotation ? TEXT("ENABLED") : TEXT("DISABLED"))
+	);
+}
+
+void UKalkiCheatManager::ToggleSmoothZoom()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->bSmoothZoom = !CameraPawn->bSmoothZoom;
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Smooth zoom %s"), 
+			CameraPawn->bSmoothZoom ? TEXT("ENABLED") : TEXT("DISABLED"))
+	);
+}
+
+void UKalkiCheatManager::PrintCameraInfo()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	FVector Location = CameraPawn->GetActorLocation();
+	FVector CameraWorldLoc = CameraPawn->GetCameraWorldLocation();
+
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(TEXT("CAMERA INFO"));
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(FString::Printf(TEXT("Pawn Location: %s"), *Location.ToString()));
+	KalkiLog::System(FString::Printf(TEXT("Camera Location: %s"), *CameraWorldLoc.ToString()));
+	KalkiLog::System(FString::Printf(TEXT("Distance: %.0f"), CameraPawn->CameraDistance));
+	KalkiLog::System(FString::Printf(TEXT("Pitch: %.1f°"), CameraPawn->CameraPitch));
+	KalkiLog::System(FString::Printf(TEXT("Yaw: %.1f°"), CameraPawn->CameraYaw));
+	KalkiLog::System(FString::Printf(TEXT("Pan Speed: %.0f"), CameraPawn->PanSpeed));
+	KalkiLog::System(FString::Printf(TEXT("Rotation Increment: %.0f°"), CameraPawn->RotationIncrement));
+	KalkiLog::System(FString::Printf(TEXT("Smooth Rotation: %s"), CameraPawn->bSmoothRotation ? TEXT("Yes") : TEXT("No")));
+	KalkiLog::System(FString::Printf(TEXT("Smooth Zoom: %s"), CameraPawn->bSmoothZoom ? TEXT("Yes") : TEXT("No")));
+	KalkiLog::System(FString::Printf(TEXT("Camera Bounds: %s"), CameraPawn->bUseCameraBounds ? TEXT("Enabled") : TEXT("Disabled")));
+	if (CameraPawn->bUseCameraBounds)
+	{
+		KalkiLog::System(FString::Printf(TEXT("Bounds: X[%.0f, %.0f] Y[%.0f, %.0f]"), 
+			CameraPawn->MinX, CameraPawn->MaxX,
+			CameraPawn->MinY, CameraPawn->MaxY));
+	}
+	KalkiLog::System(FString::Printf(TEXT("Edge Scrolling: %s"), CameraPawn->bEnableEdgeScrolling ? TEXT("Enabled") : TEXT("Disabled")));
+	KalkiLog::System(TEXT("========================================"));
+}
+
+void UKalkiCheatManager::SnapCameraRotation()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->SnapToRotationIncrement();
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Camera snapped to %.1f°"), CameraPawn->CameraYaw)
+	);
+}
+
+void UKalkiCheatManager::SetRotationIncrement(float Degrees)
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->RotationIncrement = FMath::Clamp(Degrees, 1.0f, 180.0f);
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Rotation increment set to %.0f°"), CameraPawn->RotationIncrement)
+	);
+}
+
+void UKalkiCheatManager::ToggleEdgeScrolling()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->bEnableEdgeScrolling = !CameraPawn->bEnableEdgeScrolling;
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Edge scrolling %s"), 
+			CameraPawn->bEnableEdgeScrolling ? TEXT("ENABLED") : TEXT("DISABLED"))
+	);
+}
+
+void UKalkiCheatManager::SetCameraPanSpeed(float Speed)
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	CameraPawn->PanSpeed = FMath::Max(Speed, 100.0f);
+	if (CameraPawn->MovementComponent)
+	{
+		CameraPawn->MovementComponent->MaxSpeed = CameraPawn->PanSpeed;
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("CheatManager - Pan speed set to %.0f"), Speed)
+	);
+}
+
+void UKalkiCheatManager::ResetCamera()
+{
+	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
+	if (!CameraPawn)
+	{
+		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// Reset to default values
+	CameraPawn->SetZoomDistance(1800.0f);
+	CameraPawn->SetCameraPitch(-45.0f);
+	CameraPawn->SetCameraYaw(45.0f);
+	CameraPawn->PanSpeed = 1200.0f;
+	CameraPawn->RotationIncrement = 45.0f;
+	CameraPawn->bSmoothRotation = true;
+	CameraPawn->bSmoothZoom = true;
+	CameraPawn->bUseCameraBounds = true;
+	CameraPawn->bEnableEdgeScrolling = false;
+
+	if (CameraPawn->MovementComponent)
+	{
+		CameraPawn->MovementComponent->MaxSpeed = CameraPawn->PanSpeed;
+	}
+
+	KalkiLog::System(TEXT("CheatManager - Camera reset to default settings"));
+}
+
+// ========================================
+// CHARACTER CONTROL COMMANDS
+// ========================================
+
+void UKalkiCheatManager::TestAssignCharacter(int32 CharacterIndex)
+{
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC || !PC->CharacterSelectionComponent)
+	{
+		KalkiLog::System(TEXT("TestAssignCharacter - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// TODO: For now, just log that we would assign a character
+	// Once we have AKalkiCharacter class, we'll actually spawn/assign
+	KalkiLog::System(
+		FString::Printf(TEXT("TestAssignCharacter - Would assign character %d (Need AKalkiCharacter class first)"), 
+			CharacterIndex)
+	);
+
+	// Placeholder for future:
+	// AKalkiCharacter* Character = SpawnTestCharacter(CharacterIndex);
+	// PC->CharacterSelectionComponent->AssignCharacter(Character);
+}
+
+void UKalkiCheatManager::TestSelectCharacter(int32 SlotIndex)
+{
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC || !PC->CharacterSelectionComponent)
+	{
+		KalkiLog::System(TEXT("TestSelectCharacter - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	PC->CharacterSelectionComponent->SelectCharacterBySlot(SlotIndex);
+}
+
+void UKalkiCheatManager::TestCycleCharacter()
+{
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC || !PC->CharacterSelectionComponent)
+	{
+		KalkiLog::System(TEXT("TestCycleCharacter - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	PC->CharacterSelectionComponent->SelectNextCharacter();
+}
+
+void UKalkiCheatManager::PrintControlledCharacters()
+{
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC || !PC->CharacterSelectionComponent)
+	{
+		KalkiLog::System(TEXT("PrintControlledCharacters - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	UKalkiCharacterSelectionComponent* SelectionComp = PC->CharacterSelectionComponent;
+	
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(TEXT("CONTROLLED CHARACTERS"));
+	KalkiLog::System(TEXT("========================================"));
+	
+	int32 Count = SelectionComp->GetControlledCharacterCount();
+	KalkiLog::System(FString::Printf(TEXT("Total Controlled: %d"), Count));
+	
+	if (Count == 0)
+	{
+		KalkiLog::System(TEXT("No characters assigned"));
+	}
+	else
+	{
+		TArray<AKalkiCharacter*> Characters = SelectionComp->GetControlledCharacters();
+		for (int32 i = 0; i < Characters.Num(); ++i)
+		{
+			AKalkiCharacter* Character = Characters[i];
+			bool bSelected = (Character == SelectionComp->GetSelectedCharacter());
+			
+			KalkiLog::System(
+				FString::Printf(TEXT("  [%d] %s %s"), 
+					i + 1,
+					*Character->GetName(),
+					bSelected ? TEXT("(SELECTED)") : TEXT(""))
+			);
+		}
+	}
+	
+	if (SelectionComp->HasCharacterSelected())
+	{
+		KalkiLog::System(
+			FString::Printf(TEXT("Currently Selected: %s"), 
+				*SelectionComp->GetSelectedCharacter()->GetName())
+		);
+	}
+	else
+	{
+		KalkiLog::System(TEXT("No character selected"));
+	}
+	
+	KalkiLog::System(TEXT("========================================"));
+}
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+AKalkiCameraPawn* UKalkiCheatManager::GetCameraPawn() const
+{
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC)
+	{
+		return nullptr;
+	}
+
+	return PC->GetCameraPawn();
+}
+

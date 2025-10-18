@@ -68,6 +68,12 @@ struct KALKI_API FKalkiGridCoord
     {
         return FMath::Max(FMath::Abs(X - Other.X), FMath::Abs(Y - Other.Y));
     }
+
+    // Have an Invalid value
+    static FKalkiGridCoord Invalid()
+    {
+        return FKalkiGridCoord(-1, -1);
+    }
 };
 
 // Hash function for using FKalkiGridCoord as TMap key

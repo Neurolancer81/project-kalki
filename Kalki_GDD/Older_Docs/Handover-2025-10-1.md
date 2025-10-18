@@ -1250,4 +1250,3 @@ Once these are verified, system is ready for integration with actual combat game
 
 \*\*End of handoff document. Ready to continue in new chat.\*\*
 
-```

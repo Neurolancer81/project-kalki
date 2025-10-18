@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
+#include "Grid/Components/KalkiGridOccupant.h" // ✅ Implements interface
 #include "KalkiTypes.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -16,83 +17,104 @@ class UKalkiAttributeSet;
 class UKalkiAbilitySystemComponent;
 class UAbilitySystemComponent;
 class UAttributeSet;
+class UKalkiGridOccupancyComponent; // ✅ Component
 
 UCLASS()
-class KALKI_API AKalkiCharacter : public ACharacter, public IAbilitySystemInterface
+class KALKI_API AKalkiCharacter : public ACharacter, 
+                                   public IAbilitySystemInterface,
+                                   public IKalkiGridOccupant // ✅ Implements interface
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	AKalkiCharacter(const FObjectInitializer& ObjectInitializer);
+    AKalkiCharacter(const FObjectInitializer& ObjectInitializer);
 
-	// IAbilitySystemInterface
-	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+    // ========================================
+    // IAbilitySystemInterface
+    // ========================================
 
-	// Initialize the ability system (called when possessed or player state is set)
-	virtual void InitializeAbilitySystem();
+    virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
-	// Getter for AS
-	UKalkiAttributeSet* GetAttributeSet() const {return AttributeSet;};
+    // Initialize the ability system
+    virtual void InitializeAbilitySystem();
 
-	/* START DEBUG STUFF */
+    // Getter for AS
+    UKalkiAttributeSet* GetAttributeSet() const { return AttributeSet; }
 
-	/* END DEBUG STUFF */
+    // ========================================
+    // IKalkiGridOccupant Interface ✅ NEW
+    // ========================================
+
+    virtual FKalkiGridCoord GetGridPosition_Implementation() const override;
+    virtual bool CanOccupyTile_Implementation(const FKalkiGridCoord& Coord) const override;
+    virtual int32 GetOccupancySize_Implementation() const override;
+    virtual UKalkiGridOccupancyComponent* GetGridOccupancyComponent_Implementation() const override;
+
+    // ========================================
+    // GRID HELPERS (Convenience)
+    // ========================================
+
+    /** Get movement range (from stats or default) */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Kalki|Grid")
+    int32 GetMovementRange() const;
+
+    FKalkiCharacterData GetCharacterData() const {return CharacterData;}
+
+    UKalkiDnD5eRuleset* GetActiveRuleSet() const {return ActiveRuleset;};
 
 protected:
-	virtual void BeginPlay() override;
-	virtual void PossessedBy(AController* NewController) override;
-	virtual void OnRep_PlayerState() override;
+    virtual void BeginPlay() override;
+    virtual void PossessedBy(AController* NewController) override;
+    virtual void OnRep_PlayerState() override;
 
-	// Camera components
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Camera", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<USpringArmComponent> CameraBoom;
+    // ========================================
+    // COMPONENTS
+    // ========================================
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Camera", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UCameraComponent> FollowCamera;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Abilities", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UKalkiAbilitySystemComponent> AbilitySystemComponent;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Camera")
-	float CameraDistance = 800.0f;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Abilities", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UKalkiAttributeSet> AttributeSet;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Camera")
-	float CameraPitch = -50.0f;
+    /** Grid occupancy component ✅ NEW */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Grid", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UKalkiGridOccupancyComponent> GridOccupancyComponent;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Abilities", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UKalkiAbilitySystemComponent> AbilitySystemComponent;
+    // ========================================
+    // CHARACTER DATA
+    // ========================================
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Abilities", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UKalkiAttributeSet> AttributeSet;
+    bool bAbilitySystemInitialized;
 
-	// Track if we've initialized GAS
-	bool bAbilitySystemInitialized;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Character", meta = (AllowPrivateAccess = "true"))
+    FKalkiCharacterData CharacterData;
 
-	// Character definition data
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Character", meta = (AllowPrivateAccess = "true"))
-	FKalkiCharacterData CharacterData;
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kalki|Ruleset")
+    TSubclassOf<UKalkiDnD5eRuleset> RulesetClass;
 
-	// The active ruleset for this character
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kalki|Ruleset")
-	TSubclassOf<UKalkiDnD5eRuleset> RulesetClass;
+    UPROPERTY()
+    TObjectPtr<UKalkiDnD5eRuleset> ActiveRuleset;
 
-	UPROPERTY()
-	TObjectPtr<UKalkiDnD5eRuleset> ActiveRuleset;
+    /** Default movement range (tiles per turn) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid")
+    int32 DefaultMovementRange = 6;
 
 /********************************* START DEBUG STUFF ************************************************/
 public:
-	// Debug visualization
-	UFUNCTION(BlueprintCallable, Category = "Kalki|Debug")
-	void DrawDebugStats() const;
+    // Debug visualization
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Debug")
+    void DrawDebugStats() const;
 
-	// Or simpler - apply damage/heal directly through GAS
-	void ApplyHealthChange(float Delta);
+    // Or simpler - apply damage/heal directly through GAS
+    void ApplyHealthChange(float Delta);
 
 protected:
-	// Tick to draw debug info
-	virtual void Tick(float DeltaTime) override;
+    // Tick to draw debug info
+    virtual void Tick(float DeltaTime) override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Debug")
-	bool bShowDebugStats = true;
-
-
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Debug")
+    bool bShowDebugStats = true;
 
 /***************************** END DEBUG STUFF ************************************************/
 };

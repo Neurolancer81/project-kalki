@@ -8,6 +8,8 @@
 #include "GameFramework/CheatManager.h"
 #include "KalkiCheatManager.generated.h"
 
+// Forward Declarations
+class AKalkiCameraPawn;
 /**
  * Cheat Manager for development/testing
  * Provides console commands for testing game systems
@@ -18,6 +20,15 @@ class KALKI_API UKalkiCheatManager : public UCheatManager
     GENERATED_BODY()
 
 public:
+   
+    // === Debug visualization ===
+    UFUNCTION(Exec, Category = "Kalki|Stats")
+    void DrawDebugStats() const;
+
+    // // Or simpler - apply damage/heal directly through GAS
+    // UFUNCTION(Exec, Category = "Kalki|Stats")
+    // void ApplyHealthChange();
+    
     // === Combat Log Testing ===
     
     UFUNCTION(Exec, Category = "Kalki|CombatLog")
@@ -92,5 +103,84 @@ public:
     // Scale grid
     UFUNCTION(Exec, Category = "Kalki|Grid")
     void SetGridTileScale(float Scale);
+
+    // ========================================
+    // CAMERA COMMANDS
+    // ========================================
+
+    /** Set camera zoom distance */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void SetCameraDistance(float Distance);
+
+    /** Set camera pitch angle (negative = looking down) */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void SetCameraPitch(float Pitch);
+
+    /** Set camera yaw rotation */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void SetCameraYaw(float Yaw);
+
+    /** Teleport camera to location */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void TeleportCamera(float X, float Y, float Z);
+
+    /** Toggle camera bounds */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void ToggleCameraBounds();
+
+    /** Toggle smooth camera rotation */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void ToggleSmoothRotation();
+
+    /** Toggle smooth camera zoom */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void ToggleSmoothZoom();
+
+    /** Print camera info */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void PrintCameraInfo();
+
+    /** Snap camera to rotation increment */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void SnapCameraRotation();
+
+    /** Set camera rotation increment */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void SetRotationIncrement(float Degrees);
+
+    /** Enable/disable edge scrolling */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void ToggleEdgeScrolling();
+
+    /** Set camera pan speed */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void SetCameraPanSpeed(float Speed);
+
+    /** Reset camera to default settings */
+    UFUNCTION(Exec, Category = "Kalki|Camera")
+    void ResetCamera();
     
+    /** Get camera pawn from player controller */
+    AKalkiCameraPawn* GetCameraPawn() const;
+
+    // ========================================
+    // CHARACTER CONTROL COMMANDS
+    // ========================================
+
+    /** Test: Assign a test character to current player */
+    UFUNCTION(Exec, Category = "Kalki|Character")
+    void TestAssignCharacter(int32 CharacterIndex);
+
+    /** Test: Select character by slot */
+    UFUNCTION(Exec, Category = "Kalki|Character")
+    void TestSelectCharacter(int32 SlotIndex);
+
+    /** Test: Cycle to next character */
+    UFUNCTION(Exec, Category = "Kalki|Character")
+    void TestCycleCharacter();
+
+    /** Print controlled characters */
+    UFUNCTION(Exec, Category = "Kalki|Character")
+    void PrintControlledCharacters();
+
 };

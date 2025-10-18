@@ -64,9 +64,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
     FKalkiGridCoord WorldPositionToCoord(const FVector& WorldPos) const;
 
-    // Occupancy (Server only for modification)
+    /** Set tile occupant (pass nullptr to clear) */
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    bool SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant);
+    void SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant);
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
     bool ClearTileOccupant(const FKalkiGridCoord& Coord);

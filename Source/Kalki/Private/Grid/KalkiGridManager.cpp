@@ -3,6 +3,8 @@
 // Private/Grid/KalkiGridManager.cpp
 
 #include "Grid/KalkiGridManager.h"
+
+#include "Grid/Components/KalkiGridOccupant.h"
 #include "Logging/KalkiLog.h"
 
 void UKalkiGridManager::Initialize(FSubsystemCollectionBase& Collection)
@@ -191,27 +193,40 @@ FKalkiGridCoord UKalkiGridManager::WorldPositionToCoord(const FVector& WorldPos)
     return FKalkiGridCoord(X, Y);
 }
 
-bool UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant)
+void UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant)
 {
-    // Only server can set occupancy
-    if (!HasGridAuthority())
+    if (!IsValidCoord(Coord))
     {
-        KalkiLog::Grid(TEXT("SetTileOccupant called on client - ignoring"), EKalkiLogSeverity::Warning);
-        return false;
+        KalkiLog::Grid(
+            FString::Printf(TEXT("SetTileOccupant - Invalid coord: %s"), *Coord.ToString()),
+            EKalkiLogSeverity::Warning
+        );
+        return;
     }
 
-    FKalkiGridTile* Tile = GetTileMutable(Coord);
-    if (!Tile)
+    // ✅ ADD - Validate occupant implements interface (if not null)
+    if (Occupant && !Occupant->Implements<UKalkiGridOccupant>())
     {
-        return false;
+        KalkiLog::Grid(
+            FString::Printf(TEXT("SetTileOccupant - Actor '%s' doesn't implement IKalkiGridOccupant"), 
+                *Occupant->GetName()),
+            EKalkiLogSeverity::Warning
+        );
+        // We'll allow it for now but log warning
     }
 
-    Tile->Occupant = Occupant;
+    FKalkiGridTile& Tile = GridTiles[Coord];
+    Tile.Occupant = Occupant;
 
-    // Broadcast tile changed event
+    // Broadcast change
     OnTileChanged.Broadcast(Coord);
-    
-    return true;
+
+    KalkiLog::Grid(
+        FString::Printf(TEXT("Tile %s occupant set to: %s"), 
+            *Coord.ToString(),
+            Occupant ? *Occupant->GetName() : TEXT("None")),
+        EKalkiLogSeverity::Verbose
+    );
 }
 
 bool UKalkiGridManager::ClearTileOccupant(const FKalkiGridCoord& Coord)
