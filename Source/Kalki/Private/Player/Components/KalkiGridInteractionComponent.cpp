@@ -8,6 +8,9 @@
 #include "DrawDebugHelpers.h"
 #include "Kismet/GameplayStatics.h"
 #include "Logging/KalkiLog.h"
+#include "Characters/KalkiCharacter.h" // ✅ ADD
+#include "Player/KalkiPlayerController.h" // ✅ ADD
+#include "Player/Components/KalkiCharacterSelectionComponent.h" // ✅ ADD
 
 UKalkiGridInteractionComponent::UKalkiGridInteractionComponent()
 {
@@ -52,33 +55,66 @@ void UKalkiGridInteractionComponent::TickComponent(float DeltaTime, ELevelTick T
 
 void UKalkiGridInteractionComponent::HandleLeftClick()
 {
-	if (!bEnableClickDetection)
-	{
-		return;
-	}
+    if (!bEnableClickDetection)
+    {
+        return;
+    }
 
-	FVector HitLocation;
-	FKalkiGridCoord ClickedCoord;
+    // ✅ NEW - First check if we clicked on a character
+    AKalkiCharacter* ClickedCharacter = nullptr;
+    if (RaycastToCharacter(ClickedCharacter))
+    {
+        // Clicked on a character - try to select them
+        AKalkiPlayerController* KalkiPC = Cast<AKalkiPlayerController>(OwningController);
+        if (KalkiPC && KalkiPC->CharacterSelectionComponent)
+        {
+            // Check if we control this character
+            if (KalkiPC->CharacterSelectionComponent->IsControllingCharacter(ClickedCharacter))
+            {
+                // Select our character
+                KalkiPC->CharacterSelectionComponent->SelectCharacter(ClickedCharacter);
+                
+                KalkiLog::Grid(
+                    FString::Printf(TEXT("Character clicked and selected: %s"), 
+                        *ClickedCharacter->GetName())
+                );
+                return; // Done - don't process tile click
+            }
+            else
+            {
+                KalkiLog::Grid(
+                    FString::Printf(TEXT("Clicked character '%s' but not controlled by this player"), 
+                        *ClickedCharacter->GetName()),
+                    EKalkiLogSeverity::Verbose
+                );
+                // Fall through to tile click (might be enemy)
+            }
+        }
+    }
 
-	if (RaycastToGrid(HitLocation, ClickedCoord))
-	{
-		// Valid tile clicked
-		SelectTile(ClickedCoord);
+    // No character clicked (or not controlled), check for tile click
+    FVector HitLocation;
+    FKalkiGridCoord ClickedCoord;
 
-		KalkiLog::Grid(
-			FString::Printf(TEXT("Tile clicked: %s"), *ClickedCoord.ToString())
-		);
-	}
-	else
-	{
-		// Clicked outside grid
-		ClearSelection();
+    if (RaycastToGrid(HitLocation, ClickedCoord))
+    {
+        // Valid tile clicked
+        SelectTile(ClickedCoord);
 
-		KalkiLog::Grid(
-			TEXT("Click outside grid - selection cleared"),
-			EKalkiLogSeverity::Verbose
-		);
-	}
+        KalkiLog::Grid(
+            FString::Printf(TEXT("Tile clicked: %s"), *ClickedCoord.ToString())
+        );
+    }
+    else
+    {
+        // Clicked outside grid
+        ClearSelection();
+
+        KalkiLog::Grid(
+            TEXT("Click outside grid - selection cleared"),
+            EKalkiLogSeverity::Verbose
+        );
+    }
 }
 
 void UKalkiGridInteractionComponent::HandleRightClick()
@@ -235,6 +271,51 @@ void UKalkiGridInteractionComponent::CacheReferences()
 			KalkiLog::System(TEXT("GridInteractionComponent - Found GridVisualizer"));
 		}
 	}
+}
+
+bool UKalkiGridInteractionComponent::RaycastToCharacter(AKalkiCharacter*& OutCharacter)
+{
+	OutCharacter = nullptr;
+
+	if (!OwningController)
+	{
+		return false;
+	}
+
+	// Get mouse ray
+	FVector WorldLocation, WorldDirection;
+	if (!OwningController->DeprojectMousePositionToWorld(WorldLocation, WorldDirection))
+	{
+		return false;
+	}
+
+	// Perform raycast
+	FHitResult HitResult;
+	FVector TraceEnd = WorldLocation + (WorldDirection * MaxRaycastDistance);
+	FCollisionQueryParams QueryParams;
+	QueryParams.bTraceComplex = false;
+	QueryParams.AddIgnoredActor(OwningController->GetPawn()); // Ignore camera pawn
+
+	bool bHit = GetWorld()->LineTraceSingleByChannel(
+		HitResult,
+		WorldLocation,
+		TraceEnd,
+		RaycastChannel,
+		QueryParams
+	);
+
+	if (bHit && HitResult.GetActor())
+	{
+		// Check if we hit a character
+		AKalkiCharacter* HitCharacter = Cast<AKalkiCharacter>(HitResult.GetActor());
+		if (HitCharacter)
+		{
+			OutCharacter = HitCharacter;
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void UKalkiGridInteractionComponent::DrawDebugVisuals(const FVector& Start, const FVector& End, bool bHit, const FVector& HitLocation)

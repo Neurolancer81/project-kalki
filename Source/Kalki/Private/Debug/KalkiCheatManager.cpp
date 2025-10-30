@@ -1,805 +1,295 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-// Private/Debug/KalkiCheatManager.cpp
-
 #include "Debug/KalkiCheatManager.h"
-#include "EngineUtils.h"
-#include "AbilitySystem/KalkiAttributeSet.h"
-#include "Characters/KalkiCharacter.h"
-#include "GameFramework/FloatingPawnMovement.h"
-#include "Logging/KalkiLog.h"
-#include "Logging/KalkiLogSubsystem.h"
-#include "UI/Common/KalkiHUD.h"
-#include "Grid/KalkiGridManager.h"
-#include "Grid/KalkiGridTypes.h"
-#include "Grid/KalkiGridVisualizer.h"
-#include "Kismet/GameplayStatics.h"
-#include "Level/KalkiLevelManager.h"
 #include "Player/KalkiPlayerController.h"
-#include "Player/KalkiCameraPawn.h"
 #include "Player/Components/KalkiCharacterSelectionComponent.h"
-#include "Ruleset/KalkiDnD5eRuleset.h"
-#include "UI/CombatLog/KalkiCombatLogTypes.h"
+#include "Characters/KalkiCharacter.h"
+#include "Grid/KalkiGridManager.h"
+#include "Grid/Components/KalkiGridOccupancyComponent.h"
+#include "Grid/Components/KalkiGridOccupant.h"
+#include "AbilitySystem/KalkiAttributeSet.h"
+#include "Kismet/GameplayStatics.h"
+#include "DrawDebugHelpers.h"
+#include "Logging/KalkiLog.h"
 
-// === Combat Log Testing ===
 
-void UKalkiCheatManager::DrawDebugStats() const
+// ========================================
+// GRID COMMANDS
+// ========================================
+
+void UKalkiCheatManager::SpawnTestCharacter(int32 X, int32 Y)
 {
-	APlayerController* Owner = UGameplayStatics::GetPlayerController(GetWorld(), 0);
-	if (!Owner) return;
-	AKalkiCharacter* OwningCharacter =  Cast<AKalkiCharacter>(Owner->GetCharacter());
-	UKalkiAttributeSet* AttributeSet = OwningCharacter->GetAttributeSet();
-	if (!AttributeSet) return;
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC)
+	{
+		KalkiLog::System(TEXT("SpawnTestCharacter - No PlayerController"), EKalkiLogSeverity::Warning);
+		return;
+	}
 
-	const FKalkiCharacterData CharacterData = OwningCharacter->GetCharacterData();
-	UKalkiDnD5eRuleset* ActiveRuleset = OwningCharacter->GetActiveRuleSet();
+	UWorld* World = PC->GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Get grid manager
+	UKalkiGridManager* GridManager = GetGridManager();
+	if (!GridManager)
+	{
+		KalkiLog::System(TEXT("SpawnTestCharacter - No GridManager"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// Get spawn location from grid coordinate
+	FKalkiGridCoord SpawnCoord(X, Y);
+	if (!GridManager->IsValidCoord(SpawnCoord))
+	{
+		KalkiLog::System(
+			FString::Printf(TEXT("SpawnTestCharacter - Invalid coord: (%d, %d)"), X, Y),
+			EKalkiLogSeverity::Warning
+		);
+		return;
+	}
+
+	FVector SpawnLocation = GridManager->CoordToWorldPosition(SpawnCoord);
+	FRotator SpawnRotation = FRotator::ZeroRotator;
+
+	// Spawn character
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	AKalkiCharacter* NewCharacter = World->SpawnActor<AKalkiCharacter>(
+		AKalkiCharacter::StaticClass(),
+		SpawnLocation,
+		SpawnRotation,
+		SpawnParams
+	);
+
+	if (NewCharacter)
+	{
+		// Character will auto-place via BeginPlay
+		
+		// Assign to player
+		if (PC->CharacterSelectionComponent)
+		{
+			PC->CharacterSelectionComponent->AssignCharacter(NewCharacter);
+		}
+
+		KalkiLog::System(
+			FString::Printf(TEXT("Spawned test character at grid: (%d, %d)"), X, Y)
+		);
+	}
+	else
+	{
+		KalkiLog::System(TEXT("Failed to spawn test character"), EKalkiLogSeverity::Error);
+	}
+}
+
+void UKalkiCheatManager::PlaceCharacterOnGrid(int32 X, int32 Y)
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("PlaceCharacterOnGrid - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// Get grid component
+	UKalkiGridOccupancyComponent* GridComp = Character->GetGridOccupancyComponent_Implementation();
+	if (!GridComp)
+	{
+		KalkiLog::System(TEXT("PlaceCharacterOnGrid - Character has no GridOccupancyComponent"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	// Place on grid
+	FKalkiGridCoord Coord(X, Y);
+	if (GridComp->PlaceOnGrid(Coord))
+	{
+		KalkiLog::System(
+			FString::Printf(TEXT("Placed %s on grid at: (%d, %d)"), 
+				*Character->GetName(), X, Y)
+		);
+	}
+	else
+	{
+		KalkiLog::System(
+			FString::Printf(TEXT("Failed to place %s at: (%d, %d)"), 
+				*Character->GetName(), X, Y),
+			EKalkiLogSeverity::Warning
+		);
+	}
+}
+
+void UKalkiCheatManager::RemoveCharacterFromGrid()
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("RemoveCharacterFromGrid - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// Get grid component
+	UKalkiGridOccupancyComponent* GridComp = Character->GetGridOccupancyComponent_Implementation();
+	if (!GridComp)
+	{
+		KalkiLog::System(TEXT("RemoveCharacterFromGrid - Character has no GridOccupancyComponent"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	GridComp->RemoveFromGrid();
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Removed %s from grid"), *Character->GetName())
+	);
+}
+
+void UKalkiCheatManager::PrintCharacterGridPosition()
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("PrintCharacterGridPosition - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	PrintCharacterDetails(Character);
+}
+
+void UKalkiCheatManager::SnapAllCharactersToGrid()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	UKalkiGridManager* GridManager = GetGridManager();
+	if (!GridManager)
+	{
+		KalkiLog::System(TEXT("SnapAllCharactersToGrid - Grid not created"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// Find all characters in level
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(World, AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	if (FoundCharacters.Num() == 0) return;
 	
-	FVector Location = OwningCharacter->GetActorLocation() + FVector(0, 0, 100); // Above character
-
-	// ✅ UPDATED - Include grid position
-	FString DebugText = FString::Printf(
-		TEXT("%s (Lvl %d %s)\n")
-		TEXT("Grid: %s\n") // ✅ ADD
-		TEXT("STR: %.0f (%+d)  DEX: %.0f (%+d)  CON: %.0f (%+d)\n")
-		TEXT("INT: %.0f (%+d)  WIS: %.0f (%+d)  CHA: %.0f (%+d)\n")
-		TEXT("HP: %.0f/%.0f  AC: %.0f  Move: %d"), // ✅ ADD Move
-		*CharacterData.CharacterName,
-		CharacterData.Level,
-		*UEnum::GetValueAsString(CharacterData.Class),
-		*IKalkiGridOccupant::Execute_GetGridPosition(this).ToString(), // ✅ Use interface
-		AttributeSet->GetStrength(),
-		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetStrength()) : 0,
-		AttributeSet->GetDexterity(),
-		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetDexterity()) : 0,
-		AttributeSet->GetConstitution(),
-		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetConstitution()) : 0,
-		AttributeSet->GetIntelligence(),
-		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetIntelligence()) : 0,
-		AttributeSet->GetWisdom(),
-		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetWisdom()) : 0,
-		AttributeSet->GetCharisma(),
-		ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetCharisma()) : 0,
-		AttributeSet->GetHealth(),
-		AttributeSet->GetMaxHealth(),
-		AttributeSet->GetArmorClass(),
-		OwningCharacter->GetMovementRange() // ✅ ADD
-	);
-
-	DrawDebugString(GetWorld(), Location, DebugText, nullptr, FColor::White, 0.0f, true, 1.2f);
-}
-
-void UKalkiCheatManager::StartTestCombatLog()
-{
-    UKalkiLogSubsystem* LogSys = GetWorld()->GetSubsystem<UKalkiLogSubsystem>();
-    if (!LogSys)
-    {
-        KalkiLog::System(TEXT("Failed to get LogSubsystem"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    static int32 TestCombatCounter = 1;
-    FString CombatName = FString::Printf(TEXT("Test Combat %d"), TestCombatCounter++);
-    
-    // FIXED: Use correct function name
-    LogSys->StartCombatSession(CombatName);
-
-    // Log some test messages
-    KalkiLog::Combat(TEXT("Combat started!"));
-    KalkiLog::Movement(TEXT("Arjuna moves from (2,4) to (5,7)"));
-    KalkiLog::Combat(TEXT("Arjuna attacks Goblin - Hit! 8 damage"));
-    KalkiLog::Combat(TEXT("Goblin takes 8 damage"), EKalkiLogSeverity::Warning);
-    KalkiLog::Combat(TEXT("Goblin dies!"), EKalkiLogSeverity::Error);
-}
-
-void UKalkiCheatManager::EndTestCombatLog()
-{
-    UKalkiLogSubsystem* LogSys = GetWorld()->GetSubsystem<UKalkiLogSubsystem>();
-    if (!LogSys)
-    {
-        return;
-    }
-
-    KalkiLog::System(TEXT("Combat complete"));
-    
-    // FIXED: Use correct function name
-    LogSys->EndCombatSession();
-}
-
-void UKalkiCheatManager::LogTestMessage(const FString& Message)
-{
-    KalkiLog::Combat(Message);
-}
-
-// === UI Testing ===
-
-void UKalkiCheatManager::ShowCombatUI()
-{
-    AKalkiHUD* KalkiHUD = Cast<AKalkiHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
-    if (KalkiHUD)
-    {
-        KalkiHUD->SwitchToCombatMode();
-    }
-}
-
-void UKalkiCheatManager::ShowStrategyUI()
-{
-    AKalkiHUD* KalkiHUD = Cast<AKalkiHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
-    if (KalkiHUD)
-    {
-        KalkiHUD->SwitchToStrategyMode();
-    }
-}
-
-void UKalkiCheatManager::ToggleUIMode()
-{
-    AKalkiHUD* KalkiHUD = Cast<AKalkiHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
-    if (KalkiHUD)
-    {
-        if (KalkiHUD->GetCurrentMode() == EKalkiGameMode::Combat)
-        {
-            KalkiHUD->SwitchToStrategyMode();
-        }
-        else
-        {
-            KalkiHUD->SwitchToCombatMode();
-        }
-    }
-}
-
-// === Grid Testing ===
-
-void UKalkiCheatManager::CreateTestGrid(int32 SizeX, int32 SizeY)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    GridManager->CreateGrid(SizeX, SizeY);
-    KalkiLog::System(FString::Printf(TEXT("Test grid created: %dx%d"), SizeX, SizeY));
-}
-
-void UKalkiCheatManager::PrintGridInfo()
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    KalkiLog::System(
-        FString::Printf(TEXT("Grid: %dx%d, TileSize=%.1f, Origin=%s"),
-            GridManager->GetGridSizeX(),
-            GridManager->GetGridSizeY(),
-            GridManager->GetTileSize(),
-            *GridManager->GetGridOrigin().ToString())
-    );
-}
-
-void UKalkiCheatManager::PrintTileInfo(int32 X, int32 Y)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    FKalkiGridCoord Coord(X, Y);
-    if (!GridManager->IsValidCoord(Coord))
-    {
-        KalkiLog::System(FString::Printf(TEXT("Invalid coordinate: (%d, %d)"), X, Y), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    FKalkiGridTile Tile = GridManager->GetTile(Coord);
-    
-    KalkiLog::System(
-        FString::Printf(TEXT("Tile (%d, %d): WorldPos=%s, Elevation=%.1f, Walkable=%s, Occupied=%s"),
-            X, Y,
-            *Tile.WorldPosition.ToString(),
-            Tile.Elevation,
-            Tile.bWalkable ? TEXT("Yes") : TEXT("No"),
-            Tile.IsOccupied() ? TEXT("Yes") : TEXT("No"))
-    );
-}
-
-void UKalkiCheatManager::SetTileElevation(int32 X, int32 Y, float Elevation)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    FKalkiGridCoord Coord(X, Y);
-    if (GridManager->SetElevation(Coord, Elevation))
-    {
-        KalkiLog::Grid(FString::Printf(TEXT("Set tile (%d, %d) elevation to %.1f"), X, Y, Elevation));
-    }
-    else
-    {
-        KalkiLog::Grid(FString::Printf(TEXT("Failed to set tile (%d, %d) elevation"), X, Y), EKalkiLogSeverity::Error);
-    }
-}
-
-void UKalkiCheatManager::SetTileWalkable(int32 X, int32 Y, bool bWalkable)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::Grid(TEXT("SetTileWalkable - GridManager not found"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    FKalkiGridCoord Coord(X, Y);
-    
-    if (!GridManager->IsValidCoord(Coord))
-    {
-        KalkiLog::Grid(
-            FString::Printf(TEXT("SetTileWalkable - Invalid coord: (%d, %d)"), X, Y), 
-            EKalkiLogSeverity::Error
-        );
-        return;
-    }
-
-    // Get the tile
-    FKalkiGridTile Tile = GridManager->GetTile(Coord);
-    
-    // Modify walkability
-    Tile.bWalkable = bWalkable;
-    
-    // Set it back (this will trigger OnTileChanged event)
-    if (GridManager->SetTile(Coord, Tile))
-    {
-        KalkiLog::Grid(
-            FString::Printf(TEXT("Set tile (%d, %d) walkable: %s"), 
-                X, Y, bWalkable ? TEXT("Yes") : TEXT("No"))
-        );
-    }
-    else
-    {
-        KalkiLog::Grid(
-            FString::Printf(TEXT("Failed to set tile (%d, %d) walkable"), X, Y), 
-            EKalkiLogSeverity::Error
-        );
-    }
-}
-
-void UKalkiCheatManager::CreateTestPlatform(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float Elevation)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    int32 TilesSet = 0;
-    for (int32 X = StartX; X <= EndX; ++X)
-    {
-        for (int32 Y = StartY; Y <= EndY; ++Y)
-        {
-            if (GridManager->SetElevation(FKalkiGridCoord(X, Y), Elevation))
-            {
-                TilesSet++;
-            }
-        }
-    }
-
-    KalkiLog::Grid(
-        FString::Printf(TEXT("Created platform (%d,%d) to (%d,%d) at elevation %.1f (%d tiles)"),
-            StartX, StartY, EndX, EndY, Elevation, TilesSet)
-    );
-}
-
-void UKalkiCheatManager::CreateTestRamp(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float StartElevation, float EndElevation)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    // Calculate ramp
-    int32 DeltaX = EndX - StartX;
-    int32 DeltaY = EndY - StartY;
-    bool bXAxisLonger = FMath::Abs(DeltaX) >= FMath::Abs(DeltaY);
-    int32 Steps = bXAxisLonger ? FMath::Abs(DeltaX) : FMath::Abs(DeltaY);
-    
-    if (Steps == 0)
-    {
-        GridManager->SetElevation(FKalkiGridCoord(StartX, StartY), StartElevation);
-        return;
-    }
-
-    float ElevationStep = (EndElevation - StartElevation) / Steps;
-
-    int32 TilesSet = 0;
-    for (int32 i = 0; i <= Steps; ++i)
-    {
-        float T = static_cast<float>(i) / Steps;
-        int32 X = StartX + FMath::RoundToInt(DeltaX * T);
-        int32 Y = StartY + FMath::RoundToInt(DeltaY * T);
-        float Elevation = StartElevation + (ElevationStep * i);
-
-        if (GridManager->SetElevation(FKalkiGridCoord(X, Y), Elevation))
-        {
-            TilesSet++;
-        }
-    }
-
-    KalkiLog::Grid(
-        FString::Printf(TEXT("Created ramp from (%d,%d) to (%d,%d), elevation %.1f to %.1f (%d tiles)"),
-            StartX, StartY, EndX, EndY, StartElevation, EndElevation, TilesSet)
-    );
-}
-
-void UKalkiCheatManager::PrintNeighbors(int32 X, int32 Y, bool bDiagonalAllowed)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    FKalkiGridCoord Coord(X, Y);
-    TArray<FKalkiGridCoord> Neighbors = GridManager->GetNeighbors(Coord, bDiagonalAllowed);
-    TArray<FKalkiGridCoord> WalkableNeighbors = GridManager->GetWalkableNeighbors(Coord, bDiagonalAllowed);
-
-    KalkiLog::System(
-        FString::Printf(TEXT("Tile (%d, %d) has %d neighbors (%d walkable):"),
-            X, Y, Neighbors.Num(), WalkableNeighbors.Num())
-    );
-
-    for (const FKalkiGridCoord& Neighbor : Neighbors)
-    {
-        bool bWalkable = WalkableNeighbors.Contains(Neighbor);
-        float Elevation = GridManager->GetElevation(Neighbor);
-        KalkiLog::System(
-            FString::Printf(TEXT("  %s - Elevation: %.1f %s"),
-                *Neighbor.ToString(),
-                Elevation,
-                bWalkable ? TEXT("[Walkable]") : TEXT("[Blocked]"))
-        );
-    }
-}
-
-void UKalkiCheatManager::PrintTilesInRange(int32 X, int32 Y, int32 Range)
-{
-    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::System(TEXT("Failed to get GridManager"), EKalkiLogSeverity::Error);
-        return;
-    }
-
-    FKalkiGridCoord Center(X, Y);
-    TArray<FKalkiGridCoord> TilesInRange = GridManager->GetTilesInRange(Center, Range, false);
-
-    KalkiLog::System(
-        FString::Printf(TEXT("Tiles within range %d of (%d, %d): %d tiles"),
-            Range, X, Y, TilesInRange.Num())
-    );
-
-    // Print first 10 tiles (to avoid spam)
-    int32 PrintCount = FMath::Min(10, TilesInRange.Num());
-    for (int32 i = 0; i < PrintCount; ++i)
-    {
-        const FKalkiGridCoord& Tile = TilesInRange[i];
-        int32 Distance = Tile.DistanceTo(Center);
-        KalkiLog::System(
-            FString::Printf(TEXT("  %s - Distance: %d"), *Tile.ToString(), Distance)
-        );
-    }
-
-    if (TilesInRange.Num() > 10)
-    {
-        KalkiLog::System(FString::Printf(TEXT("  ... and %d more"), TilesInRange.Num() - 10));
-    }
-}
-
-void UKalkiCheatManager::ShowGridVisualizer()
-{
-    // Find LevelManager in world
-    for (TActorIterator<AKalkiLevelManager> It(GetWorld()); It; ++It)
-    {
-        AKalkiLevelManager* LevelManager = *It;
-        if (LevelManager)
-        {
-            LevelManager->ShowGridVisualizer();
-            KalkiLog::Grid(TEXT("Grid visualizer shown"));
-            return;
-        }
-    }
-    
-    KalkiLog::Grid(TEXT("No LevelManager found"), EKalkiLogSeverity::Warning);
-}
-
-void UKalkiCheatManager::HideGridVisualizer()
-{
-    for (TActorIterator<AKalkiLevelManager> It(GetWorld()); It; ++It)
-    {
-        if (AKalkiLevelManager* LevelManager = *It)
-        {
-            LevelManager->HideGridVisualizer();
-            KalkiLog::Grid(TEXT("Grid visualizer hidden"));
-            return;
-        }
-    }
-    
-    KalkiLog::Grid(TEXT("No LevelManager found"), EKalkiLogSeverity::Warning);
-}
-
-void UKalkiCheatManager::SelectGridTile(int32 X, int32 Y)
-{
-    // Find grid visualizer in world
-    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
-    {
-        AKalkiGridVisualizer* Visualizer = *It;
-        if (Visualizer)
-        {
-            FKalkiGridCoord Coord(X, Y);
-            Visualizer->SelectTile(Coord);
-            
-            KalkiLog::Grid(
-                FString::Printf(TEXT("Selected grid tile: (%d, %d)"), X, Y)
-            );
-            return;
-        }
-    }
-    
-    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
-}
-
-void UKalkiCheatManager::DeselectGridTile()
-{
-    // Find grid visualizer in world
-    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
-    {
-        AKalkiGridVisualizer* Visualizer = *It;
-        if (Visualizer)
-        {
-            Visualizer->DeselectTile();
-            
-            KalkiLog::Grid(TEXT("Deselected grid tile"));
-            return;
-        }
-    }
-    
-    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
-}
-
-void UKalkiCheatManager::ShowGridMovementRange(int32 X, int32 Y, int32 Range)
-{
-    // Find grid visualizer in world
-    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
-    {
-        AKalkiGridVisualizer* Visualizer = *It;
-        if (Visualizer)
-        {
-            FKalkiGridCoord Coord(X, Y);
-            Visualizer->ShowMovementRange(Coord, Range);
-            
-            KalkiLog::Grid(
-                FString::Printf(TEXT("Showing movement range: %d tiles from (%d, %d)"), Range, X, Y)
-            );
-            return;
-        }
-    }
-    
-    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
-}
-
-void UKalkiCheatManager::HideGridMovementRange()
-{
-    // Find grid visualizer in world
-    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
-    {
-        AKalkiGridVisualizer* Visualizer = *It;
-        if (Visualizer)
-        {
-            Visualizer->HideMovementRange();
-            
-            KalkiLog::Grid(TEXT("Movement range hidden"));
-            return;
-        }
-    }
-    
-    KalkiLog::Grid(TEXT("No GridVisualizer found in level"), EKalkiLogSeverity::Warning);
-}
-
-void UKalkiCheatManager::SetGridTileScale(float Scale)
-{
-    // Clamp to reasonable values
-    Scale = FMath::Clamp(Scale, 0.1f, 1.0f);
-    
-    for (TActorIterator<AKalkiGridVisualizer> It(GetWorld()); It; ++It)
-    {
-        AKalkiGridVisualizer* Visualizer = *It;
-        if (Visualizer)
-        {
-            // This would require exposing TileScale and recreating grid
-            // Easier to just set it in Blueprint before PIE
-            KalkiLog::Grid(
-                FString::Printf(TEXT("SetGridTileScale: %.2f (requires grid recreation)"), Scale)
-            );
-            return;
-        }
-    }
-}
-
-// ========================================
-// CAMERA COMMANDS
-// ========================================
-
-void UKalkiCheatManager::SetCameraDistance(float Distance)
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
+	int32 SnappedCount = 0;
+	for (AActor* Actor : FoundCharacters)
 	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (!Character)
+		{
+			continue;
+		}
 
-	CameraPawn->SetZoomDistance(Distance);
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Camera distance set to %.0f"), Distance)
-	);
-}
-
-void UKalkiCheatManager::SetCameraPitch(float Pitch)
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->SetCameraPitch(Pitch);
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Camera pitch set to %.1f°"), Pitch)
-	);
-}
-
-void UKalkiCheatManager::SetCameraYaw(float Yaw)
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->SetCameraYaw(Yaw);
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Camera yaw set to %.1f°"), Yaw)
-	);
-}
-
-void UKalkiCheatManager::TeleportCamera(float X, float Y, float Z)
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	FVector NewLocation(X, Y, Z);
-	CameraPawn->SetActorLocation(NewLocation);
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Camera teleported to %s"), *NewLocation.ToString())
-	);
-}
-
-void UKalkiCheatManager::ToggleCameraBounds()
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->bUseCameraBounds = !CameraPawn->bUseCameraBounds;
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Camera bounds %s"), 
-			CameraPawn->bUseCameraBounds ? TEXT("ENABLED") : TEXT("DISABLED"))
-	);
-}
-
-void UKalkiCheatManager::ToggleSmoothRotation()
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->bSmoothRotation = !CameraPawn->bSmoothRotation;
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Smooth rotation %s"), 
-			CameraPawn->bSmoothRotation ? TEXT("ENABLED") : TEXT("DISABLED"))
-	);
-}
-
-void UKalkiCheatManager::ToggleSmoothZoom()
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->bSmoothZoom = !CameraPawn->bSmoothZoom;
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Smooth zoom %s"), 
-			CameraPawn->bSmoothZoom ? TEXT("ENABLED") : TEXT("DISABLED"))
-	);
-}
-
-void UKalkiCheatManager::PrintCameraInfo()
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	FVector Location = CameraPawn->GetActorLocation();
-	FVector CameraWorldLoc = CameraPawn->GetCameraWorldLocation();
-
-	KalkiLog::System(TEXT("========================================"));
-	KalkiLog::System(TEXT("CAMERA INFO"));
-	KalkiLog::System(TEXT("========================================"));
-	KalkiLog::System(FString::Printf(TEXT("Pawn Location: %s"), *Location.ToString()));
-	KalkiLog::System(FString::Printf(TEXT("Camera Location: %s"), *CameraWorldLoc.ToString()));
-	KalkiLog::System(FString::Printf(TEXT("Distance: %.0f"), CameraPawn->CameraDistance));
-	KalkiLog::System(FString::Printf(TEXT("Pitch: %.1f°"), CameraPawn->CameraPitch));
-	KalkiLog::System(FString::Printf(TEXT("Yaw: %.1f°"), CameraPawn->CameraYaw));
-	KalkiLog::System(FString::Printf(TEXT("Pan Speed: %.0f"), CameraPawn->PanSpeed));
-	KalkiLog::System(FString::Printf(TEXT("Rotation Increment: %.0f°"), CameraPawn->RotationIncrement));
-	KalkiLog::System(FString::Printf(TEXT("Smooth Rotation: %s"), CameraPawn->bSmoothRotation ? TEXT("Yes") : TEXT("No")));
-	KalkiLog::System(FString::Printf(TEXT("Smooth Zoom: %s"), CameraPawn->bSmoothZoom ? TEXT("Yes") : TEXT("No")));
-	KalkiLog::System(FString::Printf(TEXT("Camera Bounds: %s"), CameraPawn->bUseCameraBounds ? TEXT("Enabled") : TEXT("Disabled")));
-	if (CameraPawn->bUseCameraBounds)
-	{
-		KalkiLog::System(FString::Printf(TEXT("Bounds: X[%.0f, %.0f] Y[%.0f, %.0f]"), 
-			CameraPawn->MinX, CameraPawn->MaxX,
-			CameraPawn->MinY, CameraPawn->MaxY));
-	}
-	KalkiLog::System(FString::Printf(TEXT("Edge Scrolling: %s"), CameraPawn->bEnableEdgeScrolling ? TEXT("Enabled") : TEXT("Disabled")));
-	KalkiLog::System(TEXT("========================================"));
-}
-
-void UKalkiCheatManager::SnapCameraRotation()
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->SnapToRotationIncrement();
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Camera snapped to %.1f°"), CameraPawn->CameraYaw)
-	);
-}
-
-void UKalkiCheatManager::SetRotationIncrement(float Degrees)
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->RotationIncrement = FMath::Clamp(Degrees, 1.0f, 180.0f);
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Rotation increment set to %.0f°"), CameraPawn->RotationIncrement)
-	);
-}
-
-void UKalkiCheatManager::ToggleEdgeScrolling()
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->bEnableEdgeScrolling = !CameraPawn->bEnableEdgeScrolling;
-	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Edge scrolling %s"), 
-			CameraPawn->bEnableEdgeScrolling ? TEXT("ENABLED") : TEXT("DISABLED"))
-	);
-}
-
-void UKalkiCheatManager::SetCameraPanSpeed(float Speed)
-{
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
-	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
-		return;
-	}
-
-	CameraPawn->PanSpeed = FMath::Max(Speed, 100.0f);
-	if (CameraPawn->MovementComponent)
-	{
-		CameraPawn->MovementComponent->MaxSpeed = CameraPawn->PanSpeed;
+		// Force snap
+		if (Character->SnapToNearestTile())
+		{
+			SnappedCount++;
+		}
 	}
 
 	KalkiLog::System(
-		FString::Printf(TEXT("CheatManager - Pan speed set to %.0f"), Speed)
+		FString::Printf(TEXT("Snapped %d characters to grid tiles"), SnappedCount)
 	);
 }
 
-void UKalkiCheatManager::ResetCamera()
+void UKalkiCheatManager::SnapSelectedCharacter()
 {
-	AKalkiCameraPawn* CameraPawn = GetCameraPawn();
-	if (!CameraPawn)
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
 	{
-		KalkiLog::System(TEXT("CheatManager - No camera pawn found"), EKalkiLogSeverity::Warning);
+		KalkiLog::System(TEXT("SnapSelectedCharacter - No character selected"), EKalkiLogSeverity::Warning);
 		return;
 	}
 
-	// Reset to default values
-	CameraPawn->SetZoomDistance(1800.0f);
-	CameraPawn->SetCameraPitch(-45.0f);
-	CameraPawn->SetCameraYaw(45.0f);
-	CameraPawn->PanSpeed = 1200.0f;
-	CameraPawn->RotationIncrement = 45.0f;
-	CameraPawn->bSmoothRotation = true;
-	CameraPawn->bSmoothZoom = true;
-	CameraPawn->bUseCameraBounds = true;
-	CameraPawn->bEnableEdgeScrolling = false;
-
-	if (CameraPawn->MovementComponent)
+	if (Character->SnapToNearestTile())
 	{
-		CameraPawn->MovementComponent->MaxSpeed = CameraPawn->PanSpeed;
+		KalkiLog::System(
+			FString::Printf(TEXT("Snapped %s to nearest tile"), *Character->GetName())
+		);
 	}
-
-	KalkiLog::System(TEXT("CheatManager - Camera reset to default settings"));
+	else
+	{
+		KalkiLog::System(
+			FString::Printf(TEXT("Failed to snap %s"), *Character->GetName()),
+			EKalkiLogSeverity::Warning
+		);
+	}
 }
 
 // ========================================
 // CHARACTER CONTROL COMMANDS
 // ========================================
 
-void UKalkiCheatManager::TestAssignCharacter(int32 CharacterIndex)
+void UKalkiCheatManager::AssignAllCharacters()
 {
 	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
 	if (!PC || !PC->CharacterSelectionComponent)
 	{
-		KalkiLog::System(TEXT("TestAssignCharacter - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
+		KalkiLog::System(TEXT("AssignAllCharacters - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
 		return;
 	}
 
-	// TODO: For now, just log that we would assign a character
-	// Once we have AKalkiCharacter class, we'll actually spawn/assign
-	KalkiLog::System(
-		FString::Printf(TEXT("TestAssignCharacter - Would assign character %d (Need AKalkiCharacter class first)"), 
-			CharacterIndex)
-	);
+	// Find all characters in level
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(PC->GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
 
-	// Placeholder for future:
-	// AKalkiCharacter* Character = SpawnTestCharacter(CharacterIndex);
-	// PC->CharacterSelectionComponent->AssignCharacter(Character);
+	int32 AssignedCount = 0;
+	for (AActor* Actor : FoundCharacters)
+	{
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (Character)
+		{
+			if (PC->CharacterSelectionComponent->AssignCharacter(Character))
+			{
+				AssignedCount++;
+			}
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Assigned %d characters to player"), AssignedCount)
+	);
+}
+
+void UKalkiCheatManager::AssignCharacterByName(const FString& CharacterName)
+{
+	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
+	if (!PC || !PC->CharacterSelectionComponent)
+	{
+		KalkiLog::System(TEXT("AssignCharacterByName - No CharacterSelectionComponent"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// Find all characters in level
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(PC->GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	for (AActor* Actor : FoundCharacters)
+	{
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (Character && Character->GetName().Contains(CharacterName))
+		{
+			if (PC->CharacterSelectionComponent->AssignCharacter(Character))
+			{
+				KalkiLog::System(
+					FString::Printf(TEXT("Assigned character: %s"), *Character->GetName())
+				);
+				return;
+			}
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Character not found: %s"), *CharacterName),
+		EKalkiLogSeverity::Warning
+	);
 }
 
 void UKalkiCheatManager::TestSelectCharacter(int32 SlotIndex)
@@ -856,10 +346,13 @@ void UKalkiCheatManager::PrintControlledCharacters()
 			AKalkiCharacter* Character = Characters[i];
 			bool bSelected = (Character == SelectionComp->GetSelectedCharacter());
 			
+			FKalkiGridCoord GridPos = IKalkiGridOccupant::Execute_GetGridPosition(Character);
+			
 			KalkiLog::System(
-				FString::Printf(TEXT("  [%d] %s %s"), 
+				FString::Printf(TEXT("  [%d] %s - Grid: %s %s"), 
 					i + 1,
 					*Character->GetName(),
+					*GridPos.ToString(),
 					bSelected ? TEXT("(SELECTED)") : TEXT(""))
 			);
 		}
@@ -881,17 +374,575 @@ void UKalkiCheatManager::PrintControlledCharacters()
 }
 
 // ========================================
+// CHARACTER DEBUG COMMANDS
+// ========================================
+
+void UKalkiCheatManager::ToggleCharacterDebug()
+{
+	// Find all characters
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	for (AActor* Actor : FoundCharacters)
+	{
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (Character)
+		{
+			// Toggle debug for this frame
+			DrawCharacterStats(Character);
+		}
+	}
+
+	KalkiLog::System(TEXT("Drew debug stats for all characters (one frame)"));
+}
+
+void UKalkiCheatManager::ToggleSelectedCharacterDebug()
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("ToggleSelectedCharacterDebug - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	DrawCharacterStats(Character);
+}
+
+void UKalkiCheatManager::ShowAllCharacterStats()
+{
+	// Find all characters
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	if (FoundCharacters.Num() == 0)
+	{
+		KalkiLog::System(TEXT("No characters found in level"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	for (AActor* Actor : FoundCharacters)
+	{
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (Character)
+		{
+			DrawCharacterStats(Character);
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Drew stats for %d characters"), FoundCharacters.Num())
+	);
+}
+
+void UKalkiCheatManager::ShowCharacterGridAlignment()
+{
+	// Find all characters
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	if (FoundCharacters.Num() == 0)
+	{
+		KalkiLog::System(TEXT("No characters found in level"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	for (AActor* Actor : FoundCharacters)
+	{
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (Character)
+		{
+			DrawCharacterGridAlignment(Character);
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Drew grid alignment for %d characters"), FoundCharacters.Num())
+	);
+}
+
+void UKalkiCheatManager::PrintCharacterInfo(const FString& CharacterName)
+{
+	// Find all characters
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	for (AActor* Actor : FoundCharacters)
+	{
+		AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+		if (Character && Character->GetName().Contains(CharacterName))
+		{
+			PrintCharacterDetails(Character);
+			return;
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Character not found: %s"), *CharacterName),
+		EKalkiLogSeverity::Warning
+	);
+}
+
+void UKalkiCheatManager::PrintAllCharacters()
+{
+	// Find all characters
+	TArray<AActor*> FoundCharacters;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AKalkiCharacter::StaticClass(), FoundCharacters);
+
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(TEXT("ALL CHARACTERS IN LEVEL"));
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(FString::Printf(TEXT("Total: %d"), FoundCharacters.Num()));
+	KalkiLog::System(TEXT(""));
+
+	if (FoundCharacters.Num() == 0)
+	{
+		KalkiLog::System(TEXT("No characters found"));
+	}
+	else
+	{
+		for (AActor* Actor : FoundCharacters)
+		{
+			AKalkiCharacter* Character = Cast<AKalkiCharacter>(Actor);
+			if (Character)
+			{
+				FKalkiGridCoord GridPos = IKalkiGridOccupant::Execute_GetGridPosition(Character);
+				FVector WorldPos = Character->GetActorLocation();
+
+				KalkiLog::System(
+					FString::Printf(TEXT("  %s"), *Character->GetName())
+				);
+				KalkiLog::System(
+					FString::Printf(TEXT("    Grid: %s"), *GridPos.ToString())
+				);
+				KalkiLog::System(
+					FString::Printf(TEXT("    World: (%.0f, %.0f, %.0f)"), 
+						WorldPos.X, WorldPos.Y, WorldPos.Z)
+				);
+				KalkiLog::System(TEXT(""));
+			}
+		}
+	}
+
+	KalkiLog::System(TEXT("========================================"));
+}
+
+// ========================================
+// HEALTH DEBUG COMMANDS
+// ========================================
+
+void UKalkiCheatManager::DamageCharacter(float Amount)
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("DamageCharacter - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// ✅ UPDATED - Use GAS properly
+	UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
+	UKalkiAttributeSet* AttributeSet = Character->GetAttributeSet();
+	
+	if (!ASC || !AttributeSet)
+	{
+		KalkiLog::System(TEXT("DamageCharacter - No ASC or AttributeSet"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	float CurrentHealth = AttributeSet->GetHealth();
+	float NewHealth = FMath::Max(0.0f, CurrentHealth - FMath::Abs(Amount));
+	
+	ASC->SetNumericAttributeBase(
+		UKalkiAttributeSet::GetHealthAttribute(),
+		NewHealth
+	);
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Damaged %s for %.0f damage (HP: %.0f -> %.0f)"), 
+			*Character->GetName(), 
+			FMath::Abs(Amount),
+			CurrentHealth,
+			NewHealth)
+	);
+}
+
+void UKalkiCheatManager::HealCharacter(float Amount)
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("HealCharacter - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// ✅ UPDATED - Use GAS properly
+	UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
+	UKalkiAttributeSet* AttributeSet = Character->GetAttributeSet();
+	
+	if (!ASC || !AttributeSet)
+	{
+		KalkiLog::System(TEXT("HealCharacter - No ASC or AttributeSet"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	float CurrentHealth = AttributeSet->GetHealth();
+	float MaxHealth = AttributeSet->GetMaxHealth();
+	float NewHealth = FMath::Min(MaxHealth, CurrentHealth + FMath::Abs(Amount));
+	
+	ASC->SetNumericAttributeBase(
+		UKalkiAttributeSet::GetHealthAttribute(),
+		NewHealth
+	);
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Healed %s for %.0f HP (HP: %.0f -> %.0f)"), 
+			*Character->GetName(), 
+			FMath::Abs(Amount),
+			CurrentHealth,
+			NewHealth)
+	);
+}
+
+void UKalkiCheatManager::SetCharacterHealth(float Health)
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("SetCharacterHealth - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// ✅ UPDATED - Use GAS properly
+	UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
+	UKalkiAttributeSet* AttributeSet = Character->GetAttributeSet();
+	
+	if (!ASC || !AttributeSet)
+	{
+		KalkiLog::System(TEXT("SetCharacterHealth - No ASC or AttributeSet"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	float MaxHealth = AttributeSet->GetMaxHealth();
+	float ClampedHealth = FMath::Clamp(Health, 0.0f, MaxHealth);
+	
+	ASC->SetNumericAttributeBase(
+		UKalkiAttributeSet::GetHealthAttribute(),
+		ClampedHealth
+	);
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Set %s health to %.0f"), 
+			*Character->GetName(), ClampedHealth)
+	);
+}
+
+void UKalkiCheatManager::KillCharacter()
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("KillCharacter - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// ✅ UPDATED - Use GAS properly
+	UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
+	
+	if (!ASC)
+	{
+		KalkiLog::System(TEXT("KillCharacter - No ASC"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	ASC->SetNumericAttributeBase(
+		UKalkiAttributeSet::GetHealthAttribute(),
+		0.0f
+	);
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Killed %s"), *Character->GetName())
+	);
+}
+
+void UKalkiCheatManager::FullHealCharacter()
+{
+	AKalkiCharacter* Character = GetSelectedCharacter();
+	if (!Character)
+	{
+		KalkiLog::System(TEXT("FullHealCharacter - No character selected"), EKalkiLogSeverity::Warning);
+		return;
+	}
+
+	// ✅ UPDATED - Use GAS properly
+	UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
+	UKalkiAttributeSet* AttributeSet = Character->GetAttributeSet();
+	
+	if (!ASC || !AttributeSet)
+	{
+		KalkiLog::System(TEXT("FullHealCharacter - No ASC or AttributeSet"), EKalkiLogSeverity::Error);
+		return;
+	}
+
+	float MaxHealth = AttributeSet->GetMaxHealth();
+	
+	ASC->SetNumericAttributeBase(
+		UKalkiAttributeSet::GetHealthAttribute(),
+		MaxHealth
+	);
+
+	KalkiLog::System(
+		FString::Printf(TEXT("Full healed %s to %.0f HP"), 
+			*Character->GetName(), MaxHealth)
+	);
+}
+
+// ========================================
 // HELPER FUNCTIONS
 // ========================================
 
-AKalkiCameraPawn* UKalkiCheatManager::GetCameraPawn() const
+AKalkiCharacter* UKalkiCheatManager::GetSelectedCharacter()
 {
 	AKalkiPlayerController* PC = Cast<AKalkiPlayerController>(GetOuterAPlayerController());
-	if (!PC)
+	if (!PC || !PC->CharacterSelectionComponent)
 	{
 		return nullptr;
 	}
 
-	return PC->GetCameraPawn();
+	return PC->CharacterSelectionComponent->GetSelectedCharacter();
 }
 
+UKalkiGridManager* UKalkiCheatManager::GetGridManager()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	return World->GetSubsystem<UKalkiGridManager>();
+}
+
+void UKalkiCheatManager::DrawCharacterStats(AKalkiCharacter* Character)
+{
+	if (!Character)
+	{
+		return;
+	}
+
+	UKalkiAttributeSet* AttributeSet = Character->GetAttributeSet();
+	if (!AttributeSet)
+	{
+		return;
+	}
+
+	FVector Location = Character->GetActorLocation() + FVector(0, 0, 100);
+
+	// Get grid status
+	FString GridStatus = TEXT("Not on grid");
+	FColor StatusColor = FColor::Red;
+	
+	UKalkiGridOccupancyComponent* GridComp = Character->GetGridOccupancyComponent_Implementation();
+	if (GridComp && GridComp->IsOnGrid())
+	{
+		FKalkiGridCoord GridPos = IKalkiGridOccupant::Execute_GetGridPosition(Character);
+		
+		// Check alignment
+		UKalkiGridManager* GridManager = GetGridManager();
+		if (GridManager)
+		{
+			FVector TileCenter = GridManager->CoordToWorldPosition(GridPos);
+			float DistanceFromCenter = FVector::Dist2D(Character->GetActorLocation(), TileCenter);
+			
+			if (DistanceFromCenter < 1.0f)
+			{
+				GridStatus = FString::Printf(TEXT("Grid: %s "), *GridPos.ToString());
+				StatusColor = FColor::Green;
+			}
+			else
+			{
+				GridStatus = FString::Printf(TEXT("Grid: %s (OFF BY %.0f units)"), 
+					*GridPos.ToString(), DistanceFromCenter);
+				StatusColor = FColor::Yellow;
+			}
+		}
+		else
+		{
+			GridStatus = FString::Printf(TEXT("Grid: %s"), *GridPos.ToString());
+			StatusColor = FColor::White;
+		}
+	}
+
+	FString DebugText = FString::Printf(
+		TEXT("%s\n")
+		TEXT("%s\n")
+		TEXT("HP: %.0f/%.0f  AC: %.0f  Move: %d\n")
+		TEXT("STR: %.0f  DEX: %.0f  CON: %.0f\n")
+		TEXT("INT: %.0f  WIS: %.0f  CHA: %.0f"),
+		*Character->GetName(),
+		*GridStatus,
+		AttributeSet->GetHealth(),
+		AttributeSet->GetMaxHealth(),
+		AttributeSet->GetArmorClass(),
+		Character->GetMovementRange(),
+		AttributeSet->GetStrength(),
+		AttributeSet->GetDexterity(),
+		AttributeSet->GetConstitution(),
+		AttributeSet->GetIntelligence(),
+		AttributeSet->GetWisdom(),
+		AttributeSet->GetCharisma()
+	);
+
+	DrawDebugString(GetWorld(), Location, DebugText, nullptr, StatusColor, 5.0f, true, 1.2f);
+}
+
+void UKalkiCheatManager::DrawCharacterGridAlignment(AKalkiCharacter* Character)
+{
+	if (!Character)
+	{
+		return;
+	}
+
+	UKalkiGridOccupancyComponent* GridComp = Character->GetGridOccupancyComponent_Implementation();
+	if (!GridComp || !GridComp->IsOnGrid())
+	{
+		return;
+	}
+
+	UKalkiGridManager* GridManager = GetGridManager();
+	if (!GridManager)
+	{
+		return;
+	}
+
+	FKalkiGridCoord GridPos = IKalkiGridOccupant::Execute_GetGridPosition(Character);
+	FVector TileCenter = GridManager->CoordToWorldPosition(GridPos);
+	FVector CharacterPos = Character->GetActorLocation();
+	float DistanceFromCenter = FVector::Dist2D(CharacterPos, TileCenter);
+	
+	// Draw line from character to tile center
+	FColor LineColor = (DistanceFromCenter < 1.0f) ? FColor::Green : FColor::Red;
+	
+	DrawDebugLine(
+		GetWorld(),
+		CharacterPos,
+		TileCenter,
+		LineColor,
+		false,
+		5.0f,
+		0,
+		3.0f
+	);
+	
+	// Draw sphere at tile center
+	DrawDebugSphere(
+		GetWorld(),
+		TileCenter,
+		25.0f,
+		12,
+		FColor::Green,
+		false,
+		5.0f,
+		0,
+		2.0f
+	);
+	
+	// Draw sphere at character position
+	DrawDebugSphere(
+		GetWorld(),
+		CharacterPos,
+		20.0f,
+		12,
+		LineColor,
+		false,
+		5.0f,
+		0,
+		2.0f
+	);
+	
+	// Draw distance text
+	FVector MidPoint = (CharacterPos + TileCenter) * 0.5f;
+	FString DistanceText = FString::Printf(TEXT("%.1f units"), DistanceFromCenter);
+	
+	DrawDebugString(
+		GetWorld(),
+		MidPoint + FVector(0, 0, 50),
+		DistanceText,
+		nullptr,
+		LineColor,
+		5.0f,
+		true,
+		1.0f
+	);
+}
+
+void UKalkiCheatManager::PrintCharacterDetails(AKalkiCharacter* Character)
+{
+	if (!Character)
+	{
+		return;
+	}
+
+	UKalkiAttributeSet* AttributeSet = Character->GetAttributeSet();
+	FKalkiGridCoord GridPos = IKalkiGridOccupant::Execute_GetGridPosition(Character);
+	FVector WorldPos = Character->GetActorLocation();
+	
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(TEXT("CHARACTER DETAILS"));
+	KalkiLog::System(TEXT("========================================"));
+	KalkiLog::System(FString::Printf(TEXT("Name: %s"), *Character->GetName()));
+	KalkiLog::System(TEXT(""));
+	
+	// Grid info
+	KalkiLog::System(TEXT("GRID POSITION:"));
+	if (GridPos.IsValid())
+	{
+		KalkiLog::System(FString::Printf(TEXT("  Coordinate: %s"), *GridPos.ToString()));
+		
+		// Check alignment
+		UKalkiGridManager* GridManager = GetGridManager();
+		if (GridManager)
+		{
+			FVector TileCenter = GridManager->CoordToWorldPosition(GridPos);
+			float Distance = FVector::Dist2D(WorldPos, TileCenter);
+			
+			if (Distance < 1.0f)
+			{
+				KalkiLog::System(TEXT("Alignment: Perfect"));
+			}
+			else
+			{
+				KalkiLog::System(FString::Printf(TEXT("  Alignment: Off by %.1f units"), Distance));
+			}
+		}
+	}
+	else
+	{
+		KalkiLog::System(TEXT("  Not on grid"));
+	}
+	
+	KalkiLog::System(TEXT(""));
+	KalkiLog::System(TEXT("WORLD POSITION:"));
+	KalkiLog::System(FString::Printf(TEXT("  X: %.2f"), WorldPos.X));
+	KalkiLog::System(FString::Printf(TEXT("  Y: %.2f"), WorldPos.Y));
+	KalkiLog::System(FString::Printf(TEXT("  Z: %.2f"), WorldPos.Z));
+	
+	// Attributes
+	if (AttributeSet)
+	{
+		KalkiLog::System(TEXT(""));
+		KalkiLog::System(TEXT("ATTRIBUTES:"));
+		KalkiLog::System(FString::Printf(TEXT("  HP: %.0f / %.0f"), 
+			AttributeSet->GetHealth(), AttributeSet->GetMaxHealth()));
+		KalkiLog::System(FString::Printf(TEXT("  AC: %.0f"), AttributeSet->GetArmorClass()));
+		KalkiLog::System(FString::Printf(TEXT("  Movement: %d tiles"), Character->GetMovementRange()));
+		KalkiLog::System(TEXT(""));
+		KalkiLog::System(FString::Printf(TEXT("  STR: %.0f"), AttributeSet->GetStrength()));
+		KalkiLog::System(FString::Printf(TEXT("  DEX: %.0f"), AttributeSet->GetDexterity()));
+		KalkiLog::System(FString::Printf(TEXT("  CON: %.0f"), AttributeSet->GetConstitution()));
+		KalkiLog::System(FString::Printf(TEXT("  INT: %.0f"), AttributeSet->GetIntelligence()));
+		KalkiLog::System(FString::Printf(TEXT("  WIS: %.0f"), AttributeSet->GetWisdom()));
+		KalkiLog::System(FString::Printf(TEXT("  CHA: %.0f"), AttributeSet->GetCharisma()));
+	}
+	
+	KalkiLog::System(TEXT("========================================"));
+}

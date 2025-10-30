@@ -12,7 +12,7 @@ public class Kalki : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine", "InputCore",
 			"EnhancedInput", "UMG", "GameplayTags", "GameplayTasks", "GameplayAbilities", 
-			"AIModule", "Niagara"		});
+			"AIModule", "Niagara", "MeshDescription", "StaticMeshDescription", "MeshConversion"	});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 

@@ -34,6 +34,8 @@ class KALKI_API UKalkiCharacterSelectionComponent : public UActorComponent
 public:
 	UKalkiCharacterSelectionComponent();
 
+
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -49,6 +51,7 @@ public:
 	/** Default movement range (for testing - will come from character stats later) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Character Selection")
 	int32 DefaultMovementRange = 5;
+	
 
 	// ========================================
 	// STATE

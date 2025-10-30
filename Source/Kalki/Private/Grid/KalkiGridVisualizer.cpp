@@ -1,621 +1,701 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-// Private/Grid/KalkiGridVisualizer.cpp
-
 #include "Grid/KalkiGridVisualizer.h"
-
-#include "Blueprint/UserWidget.h"
 #include "Grid/KalkiGridManager.h"
+#include "Utilities/KalkiMeshGenerator.h"
 #include "Components/InstancedStaticMeshComponent.h"
-#include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/World.h"
+#include "DrawDebugHelpers.h"
+#include "Kismet/GameplayStatics.h"
 #include "Logging/KalkiLog.h"
 
 AKalkiGridVisualizer::AKalkiGridVisualizer()
 {
-    PrimaryActorTick.bCanEverTick = true;
-    PrimaryActorTick.bStartWithTickEnabled = true;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = true;
 
-    // Create instanced mesh component
-    TileInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("TileInstances"));
-    RootComponent = TileInstances;
+	// Create base tile component
+	TileInstancedMeshComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("TileInstancedMeshComponent"));
+	RootComponent = TileInstancedMeshComponent;
 
-    // Set up instancing
-    TileInstances->SetCastShadow(false); // Grid doesn't need shadows
-    TileInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision); // Visual only
-    TileInstances->SetMobility(EComponentMobility::Movable); // Allow runtime changes
-    TileInstances->NumCustomDataFloats = 4; // Enable custom data for per-instance colors (RGBA)
+	// Configure for custom data (RGBA color per instance)
+	TileInstancedMeshComponent->NumCustomDataFloats = 4;
 
-    // Don't replicate (local visuals only)
-    bReplicates = false;
-    AActor::SetReplicateMovement(false);
-    
+	// Create hover overlay component
+	HoverOverlayComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("HoverOverlayComponent"));
+	HoverOverlayComponent->SetupAttachment(RootComponent);
+	HoverOverlayComponent->NumCustomDataFloats = 4;
+
+	// Border tier components will be created dynamically as needed
 }
 
 void AKalkiGridVisualizer::BeginPlay()
 {
-    Super::BeginPlay();
+	Super::BeginPlay();
 
-    KalkiLog::Grid(TEXT("GridVisualizer::BeginPlay - START"), EKalkiLogSeverity::Log, this);
+	CacheReferences();
+	InitializeMeshComponents();
 
-    // Get grid manager
-    GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
-    if (!GridManager)
-    {
-        KalkiLog::Grid(TEXT("GridVisualizer - Failed to get GridManager"), EKalkiLogSeverity::Error, this);
-        return;
-    }
-
-    KalkiLog::Grid(TEXT("GridVisualizer - GridManager obtained"), EKalkiLogSeverity::Log, this);
-
-    // Bind to tile changed event
-    KalkiLog::Grid(TEXT("GridVisualizer - Binding to OnTileChanged event"), EKalkiLogSeverity::Log, this);
-    GridManager->OnTileChanged.AddDynamic(this, &AKalkiGridVisualizer::OnTileChanged);
-    KalkiLog::Grid(TEXT("GridVisualizer - OnTileChanged event bound"), EKalkiLogSeverity::Log, this);
-
-    // Wait a frame for grid to be created, then initialize
-    FTimerHandle InitTimer;
-    GetWorld()->GetTimerManager().SetTimer(InitTimer, this, &AKalkiGridVisualizer::InitializeGrid, 0.1f, false);
-
-    KalkiLog::Grid(TEXT("GridVisualizer::BeginPlay - END"), EKalkiLogSeverity::Log, this);
+	KalkiLog::System(TEXT("GridVisualizer initialized"));
 }
 
 void AKalkiGridVisualizer::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    // Unbind from events
-    if (GridManager)
-    {
-        GridManager->OnTileChanged.RemoveDynamic(this, &AKalkiGridVisualizer::OnTileChanged);
-    }
+	// Unbind from grid events
+	if (GridManager)
+	{
+		GridManager->OnGridCreated.RemoveDynamic(this, &AKalkiGridVisualizer::OnGridCreated);
+		GridManager->OnGridCleared.RemoveDynamic(this, &AKalkiGridVisualizer::OnGridCleared);
+		GridManager->OnTileChanged.RemoveDynamic(this, &AKalkiGridVisualizer::OnTileChanged);
+	}
 
-    // Clean up widget
-    if (GridInfoWidget)
-    {
-        GridInfoWidget->RemoveFromParent();
-        GridInfoWidget = nullptr;
-    }
-
-    // Clean up ViewModel
-    GridInfoViewModel = nullptr;
-
-    Super::EndPlay(EndPlayReason);
+	Super::EndPlay(EndPlayReason);
 }
 
 void AKalkiGridVisualizer::Tick(float DeltaTime)
 {
-    Super::Tick(DeltaTime);
+	Super::Tick(DeltaTime);
 
-    if (!bGridInitialized || !bEnableHover)
-    {
-        return;
-    }
-
-    UpdateHover(DeltaTime);
+	// Update hover effect every frame (automatic hover detection)
+	UpdateHoverEffect();
 }
 
-void AKalkiGridVisualizer::InitializeGrid()
+// ========================================
+// INITIALIZATION
+// ========================================
+
+void AKalkiGridVisualizer::CacheReferences()
 {
-    if (!GridManager || !TileInstances)
-    {
-        KalkiLog::Grid(TEXT("GridVisualizer - GridManager or TileInstances is null"), EKalkiLogSeverity::Error, this);
-        return;
-    }
+	// Get grid manager
+	GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
+	if (!GridManager)
+	{
+		KalkiLog::System(
+			TEXT("GridVisualizer - GridManager not found!"),
+			EKalkiLogSeverity::Warning,
+			this
+		);
+		return;
+	}
 
-    // Check if grid exists
-    if (GridManager->GetGridSizeX() == 0 || GridManager->GetGridSizeY() == 0)
-    {
-        KalkiLog::Grid(TEXT("GridVisualizer - Grid not created yet, skipping initialization"), EKalkiLogSeverity::Warning, this);
-        return;
-    }
+	// Bind to grid events
+	GridManager->OnGridCreated.AddDynamic(this, &AKalkiGridVisualizer::OnGridCreated);
+	GridManager->OnGridCleared.AddDynamic(this, &AKalkiGridVisualizer::OnGridCleared);
+	GridManager->OnTileChanged.AddDynamic(this, &AKalkiGridVisualizer::OnTileChanged);
 
-    // Set mesh if available
-    if (TileMesh)
-    {
-        TileInstances->SetStaticMesh(TileMesh);
-        KalkiLog::Grid(TEXT("GridVisualizer - Tile mesh set"), EKalkiLogSeverity::Log, this);
-    }
-    else
-    {
-        KalkiLog::Grid(TEXT("GridVisualizer - TileMesh not set in Blueprint, instances will be invisible"), EKalkiLogSeverity::Warning, this);
-    }
-
-    // Set material if available
-    if (TileMaterial)
-    {
-        DynamicTileMaterial = UMaterialInstanceDynamic::Create(TileMaterial, this);
-        TileInstances->SetMaterial(0, DynamicTileMaterial);
-        KalkiLog::Grid(TEXT("GridVisualizer - Tile material set"), EKalkiLogSeverity::Log, this);
-    }
-    else
-    {
-        KalkiLog::Grid(TEXT("GridVisualizer - TileMaterial not set, using default material"), EKalkiLogSeverity::Warning, this);
-    }
-
-    // Clear any existing instances
-    TileInstances->ClearInstances();
-
-    // Create instance for each tile
-    int32 GridSizeX = GridManager->GetGridSizeX();
-    int32 GridSizeY = GridManager->GetGridSizeY();
-
-    for (int32 X = 0; X < GridSizeX; ++X)
-    {
-        for (int32 Y = 0; Y < GridSizeY; ++Y)
-        {
-            FKalkiGridCoord Coord(X, Y);
-            FKalkiGridTile Tile = GridManager->GetTile(Coord);
-
-            // Get world position and add Z offset
-            FVector WorldPos = Tile.WorldPosition;
-            WorldPos.Z += TileZOffset;
-
-            // ⭐ Create transform with scale
-            FVector Scale(TileScale, TileScale, 1.0f); // Scale X and Y, keep Z at 1.0
-            FTransform TileTransform(FRotator::ZeroRotator, WorldPos, Scale);
-
-            // Add instance
-            int32 InstanceIndex = TileInstances->AddInstance(TileTransform, true);
-
-            // Set per-instance color (custom data)
-            FLinearColor TileColor = GetTileColor(Tile);
-            TileInstances->SetCustomDataValue(InstanceIndex, 0, TileColor.R, true);
-            TileInstances->SetCustomDataValue(InstanceIndex, 1, TileColor.G, true);
-            TileInstances->SetCustomDataValue(InstanceIndex, 2, TileColor.B, true);
-            TileInstances->SetCustomDataValue(InstanceIndex, 3, TileColor.A, true);
-        }
-    }
-
-    bGridInitialized = true;
-
-    KalkiLog::Grid(
-        FString::Printf(TEXT("GridVisualizer initialized: %d tiles, Mesh=%s, Material=%s"), 
-            GridSizeX * GridSizeY,
-            TileMesh ? TEXT("Set") : TEXT("NULL"),
-            TileMaterial ? TEXT("Set") : TEXT("NULL")),
-        EKalkiLogSeverity::Log,
-        this
-    );
-
-    // Around line 150-160, replace the widget creation code with:
-
-    // Create ViewModel
-    GridInfoViewModel = NewObject<UKalkiGridInfoViewModel>(this);
-    if (GridInfoViewModel)
-    {
-        KalkiLog::Grid(TEXT("GridVisualizer - ViewModel created"), EKalkiLogSeverity::Log, this);
-    }
-
-    // Create info widget if class is set
-    if (GridInfoWidgetClass && !GridInfoWidget)
-    {
-        if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-        {
-            GridInfoWidget = CreateWidget<UKalkiGridInfoWidget>(PC, GridInfoWidgetClass);
-            if (GridInfoWidget)
-            {
-                GridInfoWidget->AddToViewport(100); // High Z-order
-                GridInfoWidget->SetVisibility(ESlateVisibility::Hidden); // Start hidden
-            
-                // Set the ViewModel on the widget
-                GridInfoWidget->SetViewModel(GridInfoViewModel);
-            
-                KalkiLog::Grid(TEXT("GridVisualizer - Info widget created and ViewModel connected"), EKalkiLogSeverity::Log, this);
-            }
-        }
-    }
-
-    // Start with grid visibility based on settings
-    SetGridVisible(bShowGrid);
+	KalkiLog::System(TEXT("GridVisualizer - Bound to GridManager events"));
 }
 
-void AKalkiGridVisualizer::RefreshGrid()
+void AKalkiGridVisualizer::InitializeMeshComponents()
 {
-    if (!bGridInitialized || !GridManager || !TileInstances)
-    {
-        return;
-    }
+	// Set base tile mesh
+	if (TileMesh && TileInstancedMeshComponent)
+	{
+		TileInstancedMeshComponent->SetStaticMesh(TileMesh);
+	}
 
-    int32 GridSizeX = GridManager->GetGridSizeX();
-    int32 GridSizeY = GridManager->GetGridSizeY();
-    int32 InstanceIndex = 0;
+	// Set base tile material
+	if (TileMaterial && TileInstancedMeshComponent)
+	{
+		TileInstancedMeshComponent->SetMaterial(0, TileMaterial);
+	}
 
-    for (int32 X = 0; X < GridSizeX; ++X)
-    {
-        for (int32 Y = 0; Y < GridSizeY; ++Y)
-        {
-            FKalkiGridCoord Coord(X, Y);
-            FKalkiGridTile Tile = GridManager->GetTile(Coord);
+	// Generate border frame mesh if not provided
+	if (!BorderFrameMesh)
+	{
+		GenerateBorderFrameMesh();
+	}
 
-            // Update color
-            FLinearColor TileColor = GetTileColor(Tile);
-            TileInstances->SetCustomDataValue(InstanceIndex, 0, TileColor.R, true);
-            TileInstances->SetCustomDataValue(InstanceIndex, 1, TileColor.G, true);
-            TileInstances->SetCustomDataValue(InstanceIndex, 2, TileColor.B, true);
-            TileInstances->SetCustomDataValue(InstanceIndex, 3, TileColor.A, true);
+	// Set hover overlay mesh (uses tile mesh for now)
+	if (TileMesh && HoverOverlayComponent)
+	{
+		HoverOverlayComponent->SetStaticMesh(TileMesh);
+	}
 
-            InstanceIndex++;
-        }
-    }
+	// Set hover material
+	if (HoverMaterial && HoverOverlayComponent)
+	{
+		HoverOverlayComponent->SetMaterial(0, HoverMaterial);
+	}
+	else if (TileMaterial && HoverOverlayComponent)
+	{
+		// Fallback to tile material
+		HoverOverlayComponent->SetMaterial(0, TileMaterial);
+	}
 
-    // Force update
-    TileInstances->MarkRenderStateDirty();
+	KalkiLog::System(TEXT("GridVisualizer - Mesh components initialized"));
 }
 
-void AKalkiGridVisualizer::UpdateTileVisual(const FKalkiGridCoord& Coord)
+void AKalkiGridVisualizer::GenerateBorderFrameMesh()
 {
-    if (!bGridInitialized || !GridManager || !TileInstances)
-    {
-        return;
-    }
+	if (!GridManager)
+	{
+		return;
+	}
 
-    // Calculate instance index (X * GridSizeY + Y)
-    int32 GridSizeY = GridManager->GetGridSizeY();
-    int32 InstanceIndex = Coord.X * GridSizeY + Coord.Y;
+	// Get tile size from grid manager
+	float TileSize = GridManager->GetTileSize();
+	float BorderWidth = 3.0f; // Medium thickness
 
-    FKalkiGridTile Tile = GridManager->GetTile(Coord);
-    FLinearColor TileColor = GetTileColor(Tile);
+	// Generate procedural border frame
+	BorderFrameMesh = UKalkiMeshGenerator::CreateBorderFrameMesh(TileSize, BorderWidth, 0.1f);
 
-    TileInstances->SetCustomDataValue(InstanceIndex, 0, TileColor.R, true);
-    TileInstances->SetCustomDataValue(InstanceIndex, 1, TileColor.G, true);
-    TileInstances->SetCustomDataValue(InstanceIndex, 2, TileColor.B, true);
-    TileInstances->SetCustomDataValue(InstanceIndex, 3, TileColor.A, true);
-
-    TileInstances->MarkRenderStateDirty();
+	if (BorderFrameMesh)
+	{
+		KalkiLog::System(TEXT("GridVisualizer - Generated border frame mesh procedurally"));
+	}
+	else
+	{
+		KalkiLog::System(
+			TEXT("GridVisualizer - Failed to generate border frame mesh"),
+			EKalkiLogSeverity::Error,
+			this
+		);
+	}
 }
 
-FLinearColor AKalkiGridVisualizer::GetTileColor(const FKalkiGridTile& Tile) const
+// ========================================
+// GRID CREATION/UPDATES
+// ========================================
+
+void AKalkiGridVisualizer::OnGridCreated()
 {
-    FLinearColor FinalColor = WalkableColor;
-
-    // Check walkability first
-    if (bShowWalkability)
-    {
-        if (Tile.IsOccupied())
-        {
-            FinalColor = OccupiedColor;
-        }
-        else if (!Tile.bWalkable)
-        {
-            FinalColor = UnwalkableColor;
-        }
-        else
-        {
-            FinalColor = WalkableColor;
-        }
-    }
-
-    // Blend with elevation color
-    if (bShowElevation && MaxElevationForColor > 0.0f)
-    {
-        float ElevationPercent = FMath::Clamp(Tile.Elevation / MaxElevationForColor, 0.0f, 1.0f);
-        FLinearColor ElevationColor = FMath::Lerp(BaseElevationColor, HighElevationColor, ElevationPercent);
-
-        // Blend walkability color with elevation (50/50 mix)
-        FinalColor = FMath::Lerp(FinalColor, ElevationColor, 0.5f);
-    }
-
-    return FinalColor;
+	KalkiLog::System(TEXT("GridVisualizer - OnGridCreated event received"));
+	CreateGridVisuals();
 }
 
-void AKalkiGridVisualizer::UpdateHover(float DeltaTime)
+void AKalkiGridVisualizer::OnGridCleared()
 {
-    // Get tile under cursor
-    FKalkiGridCoord NewHoveredTile(-1, -1);
-    bool bIsHovering = GetTileUnderCursor(NewHoveredTile);
-
-    // Check if hover changed
-    if (NewHoveredTile != HoveredTile)
-    {
-        // Clear previous hover highlight
-        if (HoveredTile.X >= 0 && HoveredTile.Y >= 0)
-        {
-            ClearTileHighlight(HoveredTile);
-        }
-
-        // Update hover state
-        PreviousHoveredTile = HoveredTile;
-        HoveredTile = NewHoveredTile;
-
-        // Apply new hover highlight
-        if (bIsHovering && HoveredTile.X >= 0 && HoveredTile.Y >= 0)
-        {
-            SetTileHighlight(HoveredTile, HoverColor);
-        }
-
-        // Update info widget visibility and data
-        if (GridInfoWidget && GridInfoViewModel)
-        {
-            if (bIsHovering)
-            {
-                // Update ViewModel with new tile data
-                FKalkiGridTile Tile = GridManager->GetTile(HoveredTile);
-                GridInfoViewModel->UpdateFromTile(HoveredTile, Tile);
-                
-                // Show widget
-                GridInfoWidget->SetVisibility(ESlateVisibility::Visible);
-            }
-            else
-            {
-                // Hide widget
-                GridInfoWidget->SetVisibility(ESlateVisibility::Hidden);
-                
-                // Clear ViewModel
-                GridInfoViewModel->Clear();
-            }
-        }
-    }
-
-    // ⭐ NEW: Update widget position to follow mouse (every frame)
-    if (GridInfoWidget && GridInfoWidget->GetVisibility() == ESlateVisibility::Visible)
-    {
-        UpdateWidgetPosition();
-    }
-}
-
-bool AKalkiGridVisualizer::GetTileUnderCursor(FKalkiGridCoord& OutCoord) const
-{
-    if (!GridManager)
-    {
-        return false;
-    }
-
-    // Get player controller
-    APlayerController* PC = GetWorld()->GetFirstPlayerController();
-    if (!PC)
-    {
-        return false;
-    }
-
-    // Get mouse position
-    FVector MouseWorldLocation, MouseWorldDirection;
-    if (!PC->DeprojectMousePositionToWorld(MouseWorldLocation, MouseWorldDirection))
-    {
-        return false;
-    }
-
-    // Raycast from mouse to world
-    FVector Start = MouseWorldLocation;
-    FVector End = Start + (MouseWorldDirection * HoverRaycastDistance);
-
-    FHitResult HitResult;
-    FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(this);
-
-    // Raycast against world geometry
-    if (GetWorld()->LineTraceSingleByChannel(HitResult, Start, End, ECC_Visibility, QueryParams))
-    {
-        // Convert hit location to grid coordinate
-        FVector HitLocation = HitResult.Location;
-        OutCoord = GridManager->WorldPositionToCoord(HitLocation);
-
-        // Validate coordinate
-        if (GridManager->IsValidCoord(OutCoord))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-void AKalkiGridVisualizer::SetTileHighlight(const FKalkiGridCoord& Coord, const FLinearColor& Color)
-{
-    if (!bGridInitialized || !GridManager || !TileInstances)
-    {
-        return;
-    }
-
-    if (!GridManager->IsValidCoord(Coord))
-    {
-        return;
-    }
-
-    // Calculate instance index
-    int32 GridSizeY = GridManager->GetGridSizeY();
-    int32 InstanceIndex = Coord.X * GridSizeY + Coord.Y;
-
-    // Get base tile color
-    FKalkiGridTile Tile = GridManager->GetTile(Coord);
-    FLinearColor BaseColor = GetTileColor(Tile);
-
-    // Blend highlight color with base color
-    FLinearColor FinalColor = FLinearColor::LerpUsingHSV(BaseColor, Color, 0.5f);
-
-    // Set color
-    TileInstances->SetCustomDataValue(InstanceIndex, 0, FinalColor.R, true);
-    TileInstances->SetCustomDataValue(InstanceIndex, 1, FinalColor.G, true);
-    TileInstances->SetCustomDataValue(InstanceIndex, 2, FinalColor.B, true);
-    TileInstances->SetCustomDataValue(InstanceIndex, 3, FinalColor.A, true);
-
-    TileInstances->MarkRenderStateDirty();
-}
-
-void AKalkiGridVisualizer::ClearTileHighlight(const FKalkiGridCoord& Coord)
-{
-    // Restore original tile color
-    UpdateTileVisual(Coord);
-}
-
-void AKalkiGridVisualizer::ClearAllHighlights()
-{
-    // Refresh entire grid to clear all highlights
-    RefreshGrid();
-}
-
-void AKalkiGridVisualizer::SelectTile(const FKalkiGridCoord& Coord)
-{
-    if (!GridManager || !GridManager->IsValidCoord(Coord))
-    {
-        return;
-    }
-
-    // Clear previous selection
-    if (bHasTileSelected)
-    {
-        ClearTileHighlight(SelectedTile);
-    }
-
-    // Set new selection
-    SelectedTile = Coord;
-    bHasTileSelected = true;
-
-    // Highlight selected tile
-    SetTileHighlight(SelectedTile, SelectedColor);
-
-    KalkiLog::Grid(
-        FString::Printf(TEXT("Tile selected: (%d, %d)"), Coord.X, Coord.Y),
-        EKalkiLogSeverity::Log,
-        this
-    );
-}
-
-void AKalkiGridVisualizer::DeselectTile()
-{
-    if (!bHasTileSelected)
-    {
-        return;
-    }
-
-    // Clear selection highlight
-    ClearTileHighlight(SelectedTile);
-
-    // Clear movement range
-    HideMovementRange();
-
-    bHasTileSelected = false;
-    SelectedTile = FKalkiGridCoord(-1, -1);
-
-    KalkiLog::Grid(TEXT("Tile deselected"), EKalkiLogSeverity::Log, this);
-}
-
-void AKalkiGridVisualizer::ShowMovementRange(const FKalkiGridCoord& Origin, int32 Range)
-{
-    if (!GridManager)
-    {
-        return;
-    }
-
-    // Clear previous range
-    HideMovementRange();
-
-    // Get tiles in range using existing function
-    TArray<FKalkiGridCoord> RangeTilesArray = GridManager->GetTilesInRange(Origin, Range, false);
-    
-    // Convert TArray to TSet for faster lookups
-    MovementRangeTiles = TSet<FKalkiGridCoord>(RangeTilesArray);
-
-    // Highlight all tiles in range
-    for (const FKalkiGridCoord& Coord : MovementRangeTiles)
-    {
-        // Don't highlight the origin tile
-        if (Coord == Origin)
-        {
-            continue;
-        }
-
-        SetTileHighlight(Coord, MovementRangeColor);
-    }
-
-    KalkiLog::Grid(
-        FString::Printf(TEXT("Movement range shown: %d tiles from (%d, %d)"), 
-            MovementRangeTiles.Num(), Origin.X, Origin.Y),
-        EKalkiLogSeverity::Log,
-        this
-    );
-}
-
-void AKalkiGridVisualizer::HideMovementRange()
-{
-    if (MovementRangeTiles.Num() == 0)
-    {
-        return;
-    }
-
-    // Clear highlights for all range tiles
-    for (const FKalkiGridCoord& Coord : MovementRangeTiles)
-    {
-        ClearTileHighlight(Coord);
-    }
-
-    MovementRangeTiles.Empty();
-
-    KalkiLog::Grid(TEXT("Movement range hidden"), EKalkiLogSeverity::Log, this);
+	KalkiLog::System(TEXT("GridVisualizer - OnGridCleared event received"));
+	ClearGridVisuals();
 }
 
 void AKalkiGridVisualizer::OnTileChanged(const FKalkiGridCoord& Coord)
 {
-    if (!bGridInitialized)
-    {
-        KalkiLog::Grid(TEXT("OnTileChanged called before grid initialized"), EKalkiLogSeverity::Warning, this);
-        return;
-    }
-
-    // Update just this one tile
-    UpdateTileVisual(Coord);
+	KalkiLog::Grid(
+		FString::Printf(TEXT("GridVisualizer - Tile changed: %s"), *Coord.ToString()),
+		EKalkiLogSeverity::Verbose
+	);
+	UpdateTileVisual(Coord);
 }
 
-void AKalkiGridVisualizer::SetGridVisible(bool bVisible)
+void AKalkiGridVisualizer::CreateGridVisuals()
 {
-    if (TileInstances)
-    {
-        TileInstances->SetVisibility(bVisible);
-        
-        KalkiLog::Grid(
-            FString::Printf(TEXT("Grid visibility: %s"), bVisible ? TEXT("Visible") : TEXT("Hidden")),
-            EKalkiLogSeverity::Log,
-            this
-        );
-    }
+	if (!GridManager || !TileInstancedMeshComponent)
+	{
+		KalkiLog::System(
+			TEXT("GridVisualizer - Cannot create visuals (no GridManager or TileComponent)"),
+			EKalkiLogSeverity::Error,
+			this
+		);
+		return;
+	}
+
+	// Clear existing instances
+	TileInstancedMeshComponent->ClearInstances();
+
+	// Get grid dimensions
+	int32 GridSizeX = GridManager->GetGridSizeX();
+	int32 GridSizeY = GridManager->GetGridSizeY();
+
+	KalkiLog::System(
+		FString::Printf(TEXT("GridVisualizer - Creating visuals for %dx%d grid"), GridSizeX, GridSizeY)
+	);
+
+	// Create instance for each tile
+	int32 InstanceCount = 0;
+	for (int32 Y = 0; Y < GridSizeY; ++Y)
+	{
+		for (int32 X = 0; X < GridSizeX; ++X)
+		{
+			FKalkiGridCoord Coord(X, Y);
+
+			// Get tile data
+			FKalkiGridTile Tile = GridManager->GetTile(Coord);
+
+			// Calculate transform
+			FVector Location = Tile.WorldPosition;
+			FRotator Rotation = FRotator::ZeroRotator;
+			FVector Scale = FVector(1.0f, 1.0f, 1.0f);
+			FTransform Transform(Rotation, Location, Scale);
+
+			// Add instance
+			int32 InstanceIndex = TileInstancedMeshComponent->AddInstance(Transform);
+
+			// Set color based on terrain cost
+			FLinearColor TileColor = GetTerrainColorForTile(Coord);
+			SetTileInstanceColor(InstanceIndex, TileColor);
+
+			InstanceCount++;
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("GridVisualizer - Created %d tile instances"), InstanceCount)
+	);
 }
 
-void AKalkiGridVisualizer::UpdateWidgetPosition()
+void AKalkiGridVisualizer::ClearGridVisuals()
 {
-    if (!GridInfoWidget)
-    {
-        return;
-    }
+	if (TileInstancedMeshComponent)
+	{
+		TileInstancedMeshComponent->ClearInstances();
+	}
 
-    // Get player controller
-    APlayerController* PC = GetWorld()->GetFirstPlayerController();
-    if (!PC)
-    {
-        return;
-    }
+	// Clear all border tier components
+	for (UInstancedStaticMeshComponent* BorderComp : BorderTierComponents)
+	{
+		if (BorderComp)
+		{
+			BorderComp->ClearInstances();
+		}
+	}
 
-    // Get mouse position in viewport
-    float MouseX, MouseY;
-    if (PC->GetMousePosition(MouseX, MouseY))
-    {
-        // Get viewport size
-        FVector2D ViewportSize;
-        if (GEngine && GEngine->GameViewport)
-        {
-            GEngine->GameViewport->GetViewportSize(ViewportSize);
-        }
+	// Clear hover
+	if (HoverOverlayComponent)
+	{
+		HoverOverlayComponent->ClearInstances();
+	}
 
-        // Get widget desired size
-        FVector2D WidgetSize = GridInfoWidget->GetDesiredSize();
+	bHasSelection = false;
+	bHasHover = false;
+	ActiveMovementTiers.Empty();
 
-        // Calculate position with offset
-        FVector2D WidgetPosition = FVector2D(MouseX, MouseY) + TooltipOffset;
+	KalkiLog::System(TEXT("GridVisualizer - Cleared all visuals"));
+}
 
-        // Clamp to viewport bounds (prevent widget going off-screen)
-        // Right edge
-        if (WidgetPosition.X + WidgetSize.X > ViewportSize.X)
-        {
-            WidgetPosition.X = MouseX - WidgetSize.X - TooltipOffset.X; // Show on left of cursor instead
-        }
+void AKalkiGridVisualizer::UpdateTileVisual(const FKalkiGridCoord& Coord)
+{
+	if (!GridManager || !GridManager->IsValidCoord(Coord))
+	{
+		return;
+	}
 
-        // Bottom edge
-        if (WidgetPosition.Y + WidgetSize.Y > ViewportSize.Y)
-        {
-            WidgetPosition.Y = MouseY - WidgetSize.Y - TooltipOffset.Y; // Show above cursor instead
-        }
+	// Calculate instance index (row-major order)
+	int32 GridSizeX = GridManager->GetGridSizeX();
+	int32 InstanceIndex = Coord.Y * GridSizeX + Coord.X;
 
-        // Top-left edge (ensure widget stays on screen)
-        WidgetPosition.X = FMath::Max(0.0f, WidgetPosition.X);
-        WidgetPosition.Y = FMath::Max(0.0f, WidgetPosition.Y);
+	// Update color
+	FLinearColor TileColor = GetTerrainColorForTile(Coord);
+	SetTileInstanceColor(InstanceIndex, TileColor);
+}
 
-        // Set widget position
-        GridInfoWidget->SetPositionInViewport(WidgetPosition, false);
-    }
+void AKalkiGridVisualizer::RefreshAllVisuals()
+{
+	if (!GridManager)
+	{
+		return;
+	}
+
+	int32 GridSizeX = GridManager->GetGridSizeX();
+	int32 GridSizeY = GridManager->GetGridSizeY();
+
+	for (int32 Y = 0; Y < GridSizeY; ++Y)
+	{
+		for (int32 X = 0; X < GridSizeX; ++X)
+		{
+			UpdateTileVisual(FKalkiGridCoord(X, Y));
+		}
+	}
+
+	KalkiLog::System(TEXT("GridVisualizer - Refreshed all tile visuals"));
+}
+
+// ========================================
+// TERRAIN COLORS
+// ========================================
+
+FLinearColor AKalkiGridVisualizer::GetTerrainColorForTile(const FKalkiGridCoord& Coord) const
+{
+	if (!GridManager || !GridManager->IsValidCoord(Coord))
+	{
+		return FLinearColor::White;
+	}
+
+	FKalkiGridTile Tile = GridManager->GetTile(Coord);
+
+	// Determine color based on movement cost
+	if (Tile.MovementCost <= 1.0f)
+	{
+		// Normal walkable
+		return NormalTerrainColor;
+	}
+	else if (Tile.MovementCost <= 2.0f)
+	{
+		// Difficult terrain
+		return DifficultTerrainColor;
+	}
+	else if (Tile.MovementCost <= 3.0f)
+	{
+		// Very difficult terrain
+		return VeryDifficultTerrainColor;
+	}
+	else
+	{
+		// Impassable or extremely difficult
+		return ImpassableTerrainColor;
+	}
+}
+
+void AKalkiGridVisualizer::SetTileInstanceColor(int32 InstanceIndex, const FLinearColor& Color)
+{
+	if (!TileInstancedMeshComponent)
+	{
+		return;
+	}
+
+	// Set custom data (RGBA)
+	TileInstancedMeshComponent->SetCustomDataValue(InstanceIndex, 0, Color.R, true);
+	TileInstancedMeshComponent->SetCustomDataValue(InstanceIndex, 1, Color.G, true);
+	TileInstancedMeshComponent->SetCustomDataValue(InstanceIndex, 2, Color.B, true);
+	TileInstancedMeshComponent->SetCustomDataValue(InstanceIndex, 3, Color.A, true);
+}
+
+// ========================================
+// TILE SELECTION (Used by GridInteractionComponent)
+// ========================================
+
+void AKalkiGridVisualizer::SelectTile(const FKalkiGridCoord& Coord)
+{
+	if (!GridManager || !GridManager->IsValidCoord(Coord))
+	{
+		KalkiLog::Grid(
+			FString::Printf(TEXT("Cannot select invalid tile: %s"), *Coord.ToString()),
+			EKalkiLogSeverity::Warning
+		);
+		return;
+	}
+
+	// Update selection state
+	SelectedTile = Coord;
+	bHasSelection = true;
+
+	KalkiLog::Grid(
+		FString::Printf(TEXT("Tile selected: %s"), *Coord.ToString())
+	);
+}
+
+void AKalkiGridVisualizer::ClearSelection()
+{
+	if (!bHasSelection)
+	{
+		return;
+	}
+
+	bHasSelection = false;
+	SelectedTile = FKalkiGridCoord::Invalid();
+
+	KalkiLog::Grid(TEXT("Tile selection cleared"), EKalkiLogSeverity::Verbose);
+}
+
+// ========================================
+// MOVEMENT RANGE - Multi-Tier System
+// ========================================
+
+void AKalkiGridVisualizer::ShowMovementRange(const FKalkiGridCoord& Origin, const TArray<FKalkiMovementTier>& Tiers)
+{
+	if (!GridManager || !GridManager->IsValidCoord(Origin))
+	{
+		KalkiLog::System(
+			TEXT("ShowMovementRange - Invalid origin coordinate"),
+			EKalkiLogSeverity::Warning,
+			this
+		);
+		return;
+	}
+
+	if (Tiers.Num() == 0)
+	{
+		KalkiLog::System(
+			TEXT("ShowMovementRange - No tiers provided"),
+			EKalkiLogSeverity::Warning,
+			this
+		);
+		return;
+	}
+
+	// Clear existing movement range
+	HideMovementRange();
+
+	// Store active tiers
+	ActiveMovementTiers = Tiers;
+
+	// Sort tiers by range (smallest to largest) for proper layering
+	ActiveMovementTiers.Sort();
+
+	// Ensure we have enough border components
+	while (BorderTierComponents.Num() < ActiveMovementTiers.Num())
+	{
+		// Create new border component
+		FString CompName = FString::Printf(TEXT("BorderTier%d"), BorderTierComponents.Num());
+		UInstancedStaticMeshComponent* NewBorderComp = NewObject<UInstancedStaticMeshComponent>(this, *CompName);
+		
+		if (NewBorderComp)
+		{
+			NewBorderComp->SetupAttachment(RootComponent);
+			NewBorderComp->RegisterComponent();
+			NewBorderComp->SetStaticMesh(BorderFrameMesh);
+			
+			if (BorderMaterial)
+			{
+				NewBorderComp->SetMaterial(0, BorderMaterial);
+			}
+			
+			NewBorderComp->NumCustomDataFloats = 4;
+			BorderTierComponents.Add(NewBorderComp);
+		}
+	}
+
+	// For each tier, create border instances
+	for (int32 TierIndex = 0; TierIndex < ActiveMovementTiers.Num(); ++TierIndex)
+	{
+		const FKalkiMovementTier& Tier = ActiveMovementTiers[TierIndex];
+		UInstancedStaticMeshComponent* BorderComp = BorderTierComponents[TierIndex];
+
+		if (!BorderComp)
+		{
+			continue;
+		}
+
+		// Clear previous instances
+		BorderComp->ClearInstances();
+
+		// Get tiles in range for this tier
+		TArray<FKalkiGridCoord> TilesInRange = GridManager->GetTilesInRange(
+			Origin,
+			Tier.Range,
+			true // Only walkable
+		);
+
+		KalkiLog::System(
+			FString::Printf(TEXT("ShowMovementRange - Tier '%s': %d tiles in range %d"),
+				*Tier.TierName,
+				TilesInRange.Num(),
+				Tier.Range),
+			EKalkiLogSeverity::Verbose
+		);
+
+		// Create border instance for each tile
+		for (const FKalkiGridCoord& TileCoord : TilesInRange)
+		{
+			FKalkiGridTile Tile = GridManager->GetTile(TileCoord);
+
+			// Calculate transform with Z-offset
+			FVector Location = Tile.WorldPosition;
+			Location.Z += Tier.ZOffset; // Layer borders at different heights
+
+			FRotator Rotation = FRotator::ZeroRotator;
+			FVector Scale = FVector(1.0f, 1.0f, 1.0f);
+			FTransform Transform(Rotation, Location, Scale);
+
+			// Add border instance
+			int32 InstanceIndex = BorderComp->AddInstance(Transform);
+
+			// Set border color via custom data
+			BorderComp->SetCustomDataValue(InstanceIndex, 0, Tier.BorderColor.R, true);
+			BorderComp->SetCustomDataValue(InstanceIndex, 1, Tier.BorderColor.G, true);
+			BorderComp->SetCustomDataValue(InstanceIndex, 2, Tier.BorderColor.B, true);
+			BorderComp->SetCustomDataValue(InstanceIndex, 3, Tier.BorderColor.A, true);
+		}
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("ShowMovementRange - Displayed %d movement tiers from %s"),
+			ActiveMovementTiers.Num(),
+			*Origin.ToString())
+	);
+}
+
+void AKalkiGridVisualizer::HideMovementRange()
+{
+	// Clear all border tier components
+	for (UInstancedStaticMeshComponent* BorderComp : BorderTierComponents)
+	{
+		if (BorderComp)
+		{
+			BorderComp->ClearInstances();
+		}
+	}
+
+	ActiveMovementTiers.Empty();
+
+	KalkiLog::System(TEXT("HideMovementRange - Cleared all movement borders"), EKalkiLogSeverity::Verbose);
+}
+
+// ========================================
+// HOVER EFFECT (Automatic)
+// ========================================
+
+void AKalkiGridVisualizer::UpdateHoverEffect()
+{
+	if (!GridManager || !HoverOverlayComponent)
+	{
+		return;
+	}
+
+	// Get tile under cursor
+	bool bSuccess = false;
+	FKalkiGridCoord CursorTile = GetTileUnderCursor(bSuccess);
+
+	if (bSuccess && GridManager->IsValidCoord(CursorTile))
+	{
+		// Check if hover changed
+		if (!bHasHover || HoveredTile != CursorTile)
+		{
+			// Clear old hover
+			ClearHoverEffect();
+
+			// Set new hover
+			HoveredTile = CursorTile;
+			bHasHover = true;
+
+			// Get tile data
+			FKalkiGridTile Tile = GridManager->GetTile(HoveredTile);
+
+			// Calculate transform (Z+10 for hover layer)
+			FVector Location = Tile.WorldPosition;
+			Location.Z += 10.0f; // Above everything else
+
+			FRotator Rotation = FRotator::ZeroRotator;
+			FVector Scale = FVector(1.0f, 1.0f, 1.0f);
+			FTransform Transform(Rotation, Location, Scale);
+
+			// Add hover instance
+			int32 InstanceIndex = HoverOverlayComponent->AddInstance(Transform);
+
+			// Set hover color (white outline)
+			HoverOverlayComponent->SetCustomDataValue(InstanceIndex, 0, HoverOutlineColor.R, true);
+			HoverOverlayComponent->SetCustomDataValue(InstanceIndex, 1, HoverOutlineColor.G, true);
+			HoverOverlayComponent->SetCustomDataValue(InstanceIndex, 2, HoverOutlineColor.B, true);
+			HoverOverlayComponent->SetCustomDataValue(InstanceIndex, 3, HoverOutlineColor.A, true);
+		}
+	}
+	else
+	{
+		// No valid tile under cursor - clear hover
+		if (bHasHover)
+		{
+			ClearHoverEffect();
+		}
+	}
+}
+
+void AKalkiGridVisualizer::ClearHoverEffect()
+{
+	if (HoverOverlayComponent)
+	{
+		HoverOverlayComponent->ClearInstances();
+	}
+
+	bHasHover = false;
+	HoveredTile = FKalkiGridCoord::Invalid();
+}
+
+FKalkiGridCoord AKalkiGridVisualizer::GetTileUnderCursor(bool& bSuccess)
+{
+	FVector HitLocation;
+	FKalkiGridCoord Coord;
+
+	bSuccess = RaycastToGrid(HitLocation, Coord);
+	return Coord;
+}
+
+bool AKalkiGridVisualizer::RaycastToGrid(FVector& OutHitLocation, FKalkiGridCoord& OutCoord)
+{
+	if (!GridManager)
+	{
+		return false;
+	}
+
+	// Get player controller
+	APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	if (!PC)
+	{
+		return false;
+	}
+
+	// Get mouse ray
+	FVector WorldLocation, WorldDirection;
+	if (!PC->DeprojectMousePositionToWorld(WorldLocation, WorldDirection))
+	{
+		return false;
+	}
+
+	// Perform raycast
+	FHitResult HitResult;
+	FVector TraceEnd = WorldLocation + (WorldDirection * 50000.0f); // Max distance
+	FCollisionQueryParams QueryParams;
+	QueryParams.bTraceComplex = false;
+
+	bool bHit = GetWorld()->LineTraceSingleByChannel(
+		HitResult,
+		WorldLocation,
+		TraceEnd,
+		ECC_Visibility,
+		QueryParams
+	);
+
+	if (bHit)
+	{
+		OutHitLocation = HitResult.Location;
+
+		// Convert world position to grid coordinate
+		OutCoord = GridManager->WorldPositionToCoord(OutHitLocation);
+
+		// Validate coordinate
+		if (GridManager->IsValidCoord(OutCoord))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// ========================================
+// GRID VISIBILITY
+// ========================================
+
+void AKalkiGridVisualizer::ShowGrid()
+{
+	SetShowGrid(true);
+}
+
+void AKalkiGridVisualizer::HideGrid()
+{
+	SetShowGrid(false);
+}
+
+void AKalkiGridVisualizer::SetShowGrid(bool bShow)
+{
+	if (bGridVisible == bShow)
+	{
+		return; // No change
+	}
+
+	bGridVisible = bShow;
+
+	// Set visibility on all components
+	if (TileInstancedMeshComponent)
+	{
+		TileInstancedMeshComponent->SetVisibility(bGridVisible);
+	}
+
+	for (UInstancedStaticMeshComponent* BorderComp : BorderTierComponents)
+	{
+		if (BorderComp)
+		{
+			BorderComp->SetVisibility(bGridVisible);
+		}
+	}
+
+	if (HoverOverlayComponent)
+	{
+		HoverOverlayComponent->SetVisibility(bGridVisible);
+	}
+
+	KalkiLog::System(
+		FString::Printf(TEXT("GridVisualizer - Grid visibility set to %s"),
+			bGridVisible ? TEXT("visible") : TEXT("hidden"))
+	);
 }

@@ -375,31 +375,43 @@ void UKalkiCharacterSelectionComponent::UpdateMovementRangeDisplay()
 		return;
 	}
 
-	// ✅ UPDATED - Get movement range from character
-	int32 MovementRange = DefaultMovementRange;
+	// ✅ NEW - Get movement range from character
+	int32 BaseMovementRange = DefaultMovementRange;
 	
 	// Try to get actual movement range from character
 	AKalkiCharacter* KalkiChar = Cast<AKalkiCharacter>(SelectedCharacter);
 	if (KalkiChar)
 	{
-		MovementRange = KalkiChar->GetMovementRange();
+		BaseMovementRange = KalkiChar->GetMovementRange();
 	}
 
-	// Get tiles in range
-	TArray<FKalkiGridCoord> ReachableTiles = GridManager->GetTilesInRange(
-		CharacterPos,
-		MovementRange,
-		true // Only walkable tiles
-	);
+	// ✅ NEW - Create movement tiers (D&D 5e style: Normal + Dash)
+	TArray<FKalkiMovementTier> MovementTiers;
 
-	// Show on visualizer
-	GridVisualizer->ShowMovementRange(CharacterPos, MovementRange);
+	// Normal Move (1x base movement)
+	FKalkiMovementTier NormalTier;
+	NormalTier.Range = BaseMovementRange;
+	NormalTier.BorderColor = FLinearColor(0.0f, 0.8f, 1.0f, 0.8f); // Cyan
+	NormalTier.TierName = TEXT("Normal");
+	NormalTier.ZOffset = 5.0f;
+	MovementTiers.Add(NormalTier);
+
+	// Dash Move (2x base movement)
+	FKalkiMovementTier DashTier;
+	DashTier.Range = BaseMovementRange * 2;
+	DashTier.BorderColor = FLinearColor(1.0f, 0.9f, 0.2f, 0.8f); // Yellow
+	DashTier.TierName = TEXT("Dash");
+	DashTier.ZOffset = 6.0f;
+	MovementTiers.Add(DashTier);
+
+	// Show movement range with tiers
+	GridVisualizer->ShowMovementRange(CharacterPos, MovementTiers);
 
 	KalkiLog::System(
-		FString::Printf(TEXT("Showing movement range for %s: %d tiles reachable from %s"), 
+		FString::Printf(TEXT("Showing movement range for %s: Normal=%d, Dash=%d tiles"), 
 			*SelectedCharacter->GetName(),
-			ReachableTiles.Num(),
-			*CharacterPos.ToString()),
+			BaseMovementRange,
+			BaseMovementRange * 2),
 		EKalkiLogSeverity::Verbose
 	);
 }

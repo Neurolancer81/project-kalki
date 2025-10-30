@@ -59,35 +59,35 @@ void AKalkiPlayerController::SetupInputComponent()
 		// Bind camera pan action (WASD, Arrows)
 		if (PanCameraAction)
 		{
-			EnhancedInputComponent->BindAction(PanCameraAction, ETriggerEvent::Triggered, this, &AKalkiPlayerController::OnPanCamera);
+			EnhancedInputComponent->BindAction(PanCameraAction, ETriggerEvent::Triggered, this, &ThisClass::OnPanCamera);
 			KalkiLog::System(TEXT("PlayerController - Pan Camera action bound"));
 		}
 
 		// Bind zoom action (Mouse Wheel)
 		if (ZoomCameraAction)
 		{
-			EnhancedInputComponent->BindAction(ZoomCameraAction, ETriggerEvent::Triggered, this, &AKalkiPlayerController::OnZoomCamera);
+			EnhancedInputComponent->BindAction(ZoomCameraAction, ETriggerEvent::Triggered, this, &ThisClass::OnZoomCamera);
 			KalkiLog::System(TEXT("PlayerController - Zoom Camera action bound"));
 		}
 
 		// Bind rotate clockwise (E key)
 		if (RotateClockwiseAction)
 		{
-			EnhancedInputComponent->BindAction(RotateClockwiseAction, ETriggerEvent::Started, this, &AKalkiPlayerController::OnRotateClockwise);
+			EnhancedInputComponent->BindAction(RotateClockwiseAction, ETriggerEvent::Started, this, &ThisClass::OnRotateClockwise);
 			KalkiLog::System(TEXT("PlayerController - Rotate Clockwise action bound"));
 		}
 
 		// Bind rotate counter-clockwise (Q key)
 		if (RotateCounterClockwiseAction)
 		{
-			EnhancedInputComponent->BindAction(RotateCounterClockwiseAction, ETriggerEvent::Started, this, &AKalkiPlayerController::OnRotateCounterClockwise);
+			EnhancedInputComponent->BindAction(RotateCounterClockwiseAction, ETriggerEvent::Started, this, &ThisClass::OnRotateCounterClockwise);
 			KalkiLog::System(TEXT("PlayerController - Rotate Counter-Clockwise action bound"));
 		}
 
 		// Bind mouse clicks
 		if (LeftClickAction)
 		{
-			EnhancedInputComponent->BindAction(LeftClickAction, ETriggerEvent::Started, this, &AKalkiPlayerController::OnLeftClick);
+			EnhancedInputComponent->BindAction(LeftClickAction, ETriggerEvent::Started, this, &ThisClass::OnLeftClick);
 			KalkiLog::System(TEXT("PlayerController - Left Click action bound"));
 		}
 		else
@@ -97,7 +97,7 @@ void AKalkiPlayerController::SetupInputComponent()
 
 		if (RightClickAction)
 		{
-			EnhancedInputComponent->BindAction(RightClickAction, ETriggerEvent::Started, this, &AKalkiPlayerController::OnRightClick);
+			EnhancedInputComponent->BindAction(RightClickAction, ETriggerEvent::Started, this, &ThisClass::OnRightClick);
 			KalkiLog::System(TEXT("PlayerController - Right Click action bound"));
 		}
 		else
@@ -108,34 +108,34 @@ void AKalkiPlayerController::SetupInputComponent()
 		// Bind character selection (1-6 keys)
 		if (SelectCharacter1Action)
 		{
-			EnhancedInputComponent->BindAction(SelectCharacter1Action, ETriggerEvent::Started, this, &AKalkiPlayerController::OnSelectCharacter1);
+			EnhancedInputComponent->BindAction(SelectCharacter1Action, ETriggerEvent::Started, this, &ThisClass::OnSelectCharacter1);
 		}
 		if (SelectCharacter2Action)
 		{
-			EnhancedInputComponent->BindAction(SelectCharacter2Action, ETriggerEvent::Started, this, &AKalkiPlayerController::OnSelectCharacter2);
+			EnhancedInputComponent->BindAction(SelectCharacter2Action, ETriggerEvent::Started, this, &ThisClass::OnSelectCharacter2);
 		}
 		if (SelectCharacter3Action)
 		{
-			EnhancedInputComponent->BindAction(SelectCharacter3Action, ETriggerEvent::Started, this, &AKalkiPlayerController::OnSelectCharacter3);
+			EnhancedInputComponent->BindAction(SelectCharacter3Action, ETriggerEvent::Started, this, &ThisClass::OnSelectCharacter3);
 		}
 		if (SelectCharacter4Action)
 		{
-			EnhancedInputComponent->BindAction(SelectCharacter4Action, ETriggerEvent::Started, this, &AKalkiPlayerController::OnSelectCharacter4);
+			EnhancedInputComponent->BindAction(SelectCharacter4Action, ETriggerEvent::Started, this, &ThisClass::OnSelectCharacter4);
 		}
 		// ✅ ADD THESE:
 		if (SelectCharacter5Action)
 		{
-			EnhancedInputComponent->BindAction(SelectCharacter5Action, ETriggerEvent::Started, this, &AKalkiPlayerController::OnSelectCharacter5);
+			EnhancedInputComponent->BindAction(SelectCharacter5Action, ETriggerEvent::Started, this, &ThisClass::OnSelectCharacter5);
 		}
 		if (SelectCharacter6Action)
 		{
-			EnhancedInputComponent->BindAction(SelectCharacter6Action, ETriggerEvent::Started, this, &AKalkiPlayerController::OnSelectCharacter6);
+			EnhancedInputComponent->BindAction(SelectCharacter6Action, ETriggerEvent::Started, this, &ThisClass::OnSelectCharacter6);
 		}
 
 		// Bind cycle character (Tab)
 		if (CycleCharacterAction)
 		{
-			EnhancedInputComponent->BindAction(CycleCharacterAction, ETriggerEvent::Started, this, &AKalkiPlayerController::OnCycleCharacter);
+			EnhancedInputComponent->BindAction(CycleCharacterAction, ETriggerEvent::Started, this, &ThisClass::OnCycleCharacter);
 		}
 
 		KalkiLog::System(TEXT("PlayerController - Character selection actions bound"));

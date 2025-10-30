@@ -193,15 +193,37 @@ FKalkiGridCoord UKalkiGridManager::WorldPositionToCoord(const FVector& WorldPos)
     return FKalkiGridCoord(X, Y);
 }
 
-void UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant)
+bool UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant)
 {
+    // Authority check
+    if (!HasGridAuthority())
+    {
+        KalkiLog::Grid(
+            TEXT("SetTileOccupant - No authority (client tried to modify)"),
+            EKalkiLogSeverity::Warning
+        );
+        return false;
+    }
+
+    // Validate coordinate
     if (!IsValidCoord(Coord))
     {
         KalkiLog::Grid(
             FString::Printf(TEXT("SetTileOccupant - Invalid coord: %s"), *Coord.ToString()),
             EKalkiLogSeverity::Warning
         );
-        return;
+        return false;
+    }
+
+    // ✅ UPDATED - Use TMap instead of array
+    FKalkiGridTile* Tile = GridTiles.Find(Coord);
+    if (!Tile)
+    {
+        KalkiLog::Grid(
+            FString::Printf(TEXT("SetTileOccupant - Tile not found: %s"), *Coord.ToString()),
+            EKalkiLogSeverity::Error
+        );
+        return false;
     }
 
     // ✅ ADD - Validate occupant implements interface (if not null)
@@ -215,8 +237,8 @@ void UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Oc
         // We'll allow it for now but log warning
     }
 
-    FKalkiGridTile& Tile = GridTiles[Coord];
-    Tile.Occupant = Occupant;
+    // Set occupant
+    Tile->Occupant = Occupant;
 
     // Broadcast change
     OnTileChanged.Broadcast(Coord);
@@ -227,6 +249,8 @@ void UKalkiGridManager::SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Oc
             Occupant ? *Occupant->GetName() : TEXT("None")),
         EKalkiLogSeverity::Verbose
     );
+
+    return true;
 }
 
 bool UKalkiGridManager::ClearTileOccupant(const FKalkiGridCoord& Coord)

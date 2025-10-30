@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Older_Docs/KalkiCharacter.md",
+                "file": "Older_Docs/GridVisualizer.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "KalkiCharacter"
+              "title": "GridVisualizer"
             }
           }
         ]
@@ -168,8 +168,12 @@
   },
   "active": "889ab990daf83b21",
   "lastOpenFiles": [
-    "Older_Docs/Handover-2025-10-1.md",
+    "Older_Docs/KalkiGridInteractionComponent.md",
+    "Older_Docs/GridVisualizer.md",
+    "Older_Docs/KalkiGridManager.md",
     "Older_Docs/KalkiCharacter.md",
+    "00_Overview/Untitled.md",
+    "Older_Docs/Handover-2025-10-1.md",
     "03_Systems/Combat_Log_System.md",
     "03_Systems/Grid_Coordinate_System.md",
     "01_Architecture/Project_Structure.md",
@@ -190,10 +194,6 @@
     "05_API_Reference/KalkiGridManager_API.md",
     "05_API_Reference/KalkiLog_API.md",
     "04_Implementation/Testing_Procedures.md",
-    "04_Implementation/Error_Handling.md",
-    "04_Implementation/Class_Templates.md",
-    "04_Implementation/Multiplayer_Guidelines.md",
-    "04_Implementation/Common_Patterns.md",
     "Older_Docs",
     "06_How_to_work_with_Claude",
     "05_API_Reference",

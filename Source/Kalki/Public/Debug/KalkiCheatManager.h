@@ -1,186 +1,147 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-// Public/Cheats/KalkiCheatManager.h
-
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/CheatManager.h"
 #include "KalkiCheatManager.generated.h"
 
-// Forward Declarations
-class AKalkiCameraPawn;
+// Forward declarations
+class AKalkiCharacter;
+class UKalkiGridManager;
+
 /**
- * Cheat Manager for development/testing
- * Provides console commands for testing game systems
+ * Kalki Cheat Manager
+ * Development and debugging commands
  */
 UCLASS()
 class KALKI_API UKalkiCheatManager : public UCheatManager
 {
-    GENERATED_BODY()
+	GENERATED_BODY()
 
 public:
-   
-    // === Debug visualization ===
-    UFUNCTION(Exec, Category = "Kalki|Stats")
-    void DrawDebugStats() const;
+	// ========================================
+	// GRID COMMANDS
+	// ========================================
 
-    // // Or simpler - apply damage/heal directly through GAS
-    // UFUNCTION(Exec, Category = "Kalki|Stats")
-    // void ApplyHealthChange();
-    
-    // === Combat Log Testing ===
-    
-    UFUNCTION(Exec, Category = "Kalki|CombatLog")
-    void StartTestCombatLog();
+	/** Spawn a test character and place on grid */
+	UFUNCTION(Exec, Category = "Kalki|Grid")
+	void SpawnTestCharacter(int32 X, int32 Y);
 
-    UFUNCTION(Exec, Category = "Kalki|CombatLog")
-    void EndTestCombatLog();
+	/** Place selected character on grid */
+	UFUNCTION(Exec, Category = "Kalki|Grid")
+	void PlaceCharacterOnGrid(int32 X, int32 Y);
 
-    UFUNCTION(Exec, Category = "Kalki|CombatLog")
-    void LogTestMessage(const FString& Message);
+	/** Remove selected character from grid */
+	UFUNCTION(Exec, Category = "Kalki|Grid")
+	void RemoveCharacterFromGrid();
 
-    // === UI Testing ===
-    
-    UFUNCTION(Exec, Category = "Kalki|UI")
-    void ShowCombatUI();
+	/** Print grid position of selected character */
+	UFUNCTION(Exec, Category = "Kalki|Grid")
+	void PrintCharacterGridPosition();
 
-    UFUNCTION(Exec, Category = "Kalki|UI")
-    void ShowStrategyUI();
+	/** Snap all characters to nearest grid tiles */
+	UFUNCTION(Exec, Category = "Kalki|Grid")
+	void SnapAllCharactersToGrid();
 
-    UFUNCTION(Exec, Category = "Kalki|UI")
-    void ToggleUIMode();
+	/** Force snap selected character to nearest tile */
+	UFUNCTION(Exec, Category = "Kalki|Grid")
+	void SnapSelectedCharacter();
 
-    // === Grid Testing ===
-    
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void CreateTestGrid(int32 SizeX = 20, int32 SizeY = 20);
+	// ========================================
+	// CHARACTER CONTROL COMMANDS
+	// ========================================
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void PrintGridInfo();
+	/** Assign all characters in level to current player */
+	UFUNCTION(Exec, Category = "Kalki|Character")
+	void AssignAllCharacters();
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void PrintTileInfo(int32 X, int32 Y);
+	/** Assign character by name */
+	UFUNCTION(Exec, Category = "Kalki|Character")
+	void AssignCharacterByName(const FString& CharacterName);
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void SetTileElevation(int32 X, int32 Y, float Elevation);
+	/** Select character by slot */
+	UFUNCTION(Exec, Category = "Kalki|Character")
+	void TestSelectCharacter(int32 SlotIndex);
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void SetTileWalkable(int32 X, int32 Y, bool bWalkable);
+	/** Cycle to next character */
+	UFUNCTION(Exec, Category = "Kalki|Character")
+	void TestCycleCharacter();
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void CreateTestPlatform(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float Elevation);
+	/** Print controlled characters */
+	UFUNCTION(Exec, Category = "Kalki|Character")
+	void PrintControlledCharacters();
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void CreateTestRamp(int32 StartX, int32 StartY, int32 EndX, int32 EndY, float StartElevation, float EndElevation);
+	// ========================================
+	// CHARACTER DEBUG COMMANDS
+	// ========================================
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void PrintNeighbors(int32 X, int32 Y, bool bDiagonalAllowed = true);
+	/** Toggle debug stats display for all characters */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void ToggleCharacterDebug();
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void PrintTilesInRange(int32 X, int32 Y, int32 Range);
+	/** Toggle debug stats for selected character only */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void ToggleSelectedCharacterDebug();
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void ShowGridVisualizer();
+	/** Draw debug info for all characters (one frame) */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void ShowAllCharacterStats();
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void HideGridVisualizer();
+	/** Draw detailed grid alignment debug for all characters */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void ShowCharacterGridAlignment();
 
-    // Grid selection commands
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void SelectGridTile(int32 X, int32 Y);
+	/** Print detailed character info to console */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void PrintCharacterInfo(const FString& CharacterName);
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void DeselectGridTile();
+	/** Print all characters in level with their grid positions */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void PrintAllCharacters();
 
-    // Movement range preview commands
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void ShowGridMovementRange(int32 X, int32 Y, int32 Range);
+	// ========================================
+	// HEALTH DEBUG COMMANDS
+	// ========================================
 
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void HideGridMovementRange();
+	/** Damage selected character */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void DamageCharacter(float Amount);
 
-    // Scale grid
-    UFUNCTION(Exec, Category = "Kalki|Grid")
-    void SetGridTileScale(float Scale);
+	/** Heal selected character */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void HealCharacter(float Amount);
 
-    // ========================================
-    // CAMERA COMMANDS
-    // ========================================
+	/** Set selected character health */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void SetCharacterHealth(float Health);
 
-    /** Set camera zoom distance */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void SetCameraDistance(float Distance);
+	/** Kill selected character */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void KillCharacter();
 
-    /** Set camera pitch angle (negative = looking down) */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void SetCameraPitch(float Pitch);
+	/** Full heal selected character */
+	UFUNCTION(Exec, Category = "Kalki|Debug")
+	void FullHealCharacter();
 
-    /** Set camera yaw rotation */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void SetCameraYaw(float Yaw);
+private:
+	// ========================================
+	// HELPER FUNCTIONS
+	// ========================================
 
-    /** Teleport camera to location */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void TeleportCamera(float X, float Y, float Z);
+	/** Get selected character from player controller */
+	AKalkiCharacter* GetSelectedCharacter();
 
-    /** Toggle camera bounds */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void ToggleCameraBounds();
+	/** Get grid manager */
+	UKalkiGridManager* GetGridManager();
 
-    /** Toggle smooth camera rotation */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void ToggleSmoothRotation();
+	/** Draw character stats in world */
+	void DrawCharacterStats(AKalkiCharacter* Character);
 
-    /** Toggle smooth camera zoom */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void ToggleSmoothZoom();
+	/** Draw character grid alignment debug */
+	void DrawCharacterGridAlignment(AKalkiCharacter* Character);
 
-    /** Print camera info */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void PrintCameraInfo();
-
-    /** Snap camera to rotation increment */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void SnapCameraRotation();
-
-    /** Set camera rotation increment */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void SetRotationIncrement(float Degrees);
-
-    /** Enable/disable edge scrolling */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void ToggleEdgeScrolling();
-
-    /** Set camera pan speed */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void SetCameraPanSpeed(float Speed);
-
-    /** Reset camera to default settings */
-    UFUNCTION(Exec, Category = "Kalki|Camera")
-    void ResetCamera();
-    
-    /** Get camera pawn from player controller */
-    AKalkiCameraPawn* GetCameraPawn() const;
-
-    // ========================================
-    // CHARACTER CONTROL COMMANDS
-    // ========================================
-
-    /** Test: Assign a test character to current player */
-    UFUNCTION(Exec, Category = "Kalki|Character")
-    void TestAssignCharacter(int32 CharacterIndex);
-
-    /** Test: Select character by slot */
-    UFUNCTION(Exec, Category = "Kalki|Character")
-    void TestSelectCharacter(int32 SlotIndex);
-
-    /** Test: Cycle to next character */
-    UFUNCTION(Exec, Category = "Kalki|Character")
-    void TestCycleCharacter();
-
-    /** Print controlled characters */
-    UFUNCTION(Exec, Category = "Kalki|Character")
-    void PrintControlledCharacters();
+	/** Print character details to console */
+	void PrintCharacterDetails(AKalkiCharacter* Character);
 
 };

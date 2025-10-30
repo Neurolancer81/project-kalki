@@ -1,32 +1,25 @@
 ﻿// Copyright of V.S. Puranam and no one else
 
-// Public/Grid/KalkiGridVisualizer.h
-
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Grid/KalkiGridTypes.h"
-#include "UI/Grid/KalkiGridInfoViewModel.h"
-#include "UI/Grid/KalkiGridInfoWidget.h"
 #include "KalkiGridVisualizer.generated.h"
 
+// Forward declarations
 class UKalkiGridManager;
 class UInstancedStaticMeshComponent;
-class UMaterialInterface;
-class UMaterialInstanceDynamic;
-class UUserWidget;
 
 /**
  * Grid Visualizer
- * Renders the tactical grid using instanced meshes
- * Shows walkability, elevation, and movement ranges visually
- * Handles hover detection and tile selection
+ * Renders the tactical grid with multi-layer border system
  * 
- * PERFORMANCE:
- * - Uses GPU instancing (1-2 draw calls for entire grid)
- * - Color-coded via material parameters
- * - Local only (no replication needed)
+ * FEATURES:
+ * - Base tiles show terrain type (green/yellow/orange/gray based on MovementCost)
+ * - Border layers show movement ranges with multiple tiers (cyan/yellow/orange)
+ * - Hover effect highlights single tile (brighten + outline)
+ * - Selection system for clicked tiles
  */
 UCLASS()
 class KALKI_API AKalkiGridVisualizer : public AActor
@@ -36,253 +29,272 @@ class KALKI_API AKalkiGridVisualizer : public AActor
 public:
     AKalkiGridVisualizer();
 
-    virtual void Tick(float DeltaTime) override;
-
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+public:
+    virtual void Tick(float DeltaTime) override;
 
     // ========================================
     // COMPONENTS
     // ========================================
 
-    // Instanced mesh component (renders all tiles efficiently)
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grid")
-    TObjectPtr<UInstancedStaticMeshComponent> TileInstances;
+    /** Base tile mesh component (shows terrain colors) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Grid|Components")
+    TObjectPtr<UInstancedStaticMeshComponent> TileInstancedMeshComponent;
+
+    /** Border tier components (dynamically created, one per movement tier) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Grid|Components")
+    TArray<TObjectPtr<UInstancedStaticMeshComponent>> BorderTierComponents;
+
+    /** Hover highlight component (single tile brightening + outline) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Grid|Components")
+    TObjectPtr<UInstancedStaticMeshComponent> HoverOverlayComponent;
 
     // ========================================
-    // MESH & MATERIAL
+    // SETTINGS
     // ========================================
 
-    // Base tile mesh (your 1x1 mesh)
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Grid|Mesh")
+    /** Show debug visualizations? */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization")
+    bool bShowDebug = false;
+
+    /** Is grid visible? */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization")
+    bool bGridVisible = true;
+
+    // ========================================
+    // MESHES & MATERIALS
+    // ========================================
+
+    /** Base tile mesh (plane/quad) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Assets")
     TObjectPtr<UStaticMesh> TileMesh;
 
-    // Material for tiles (color-coded)
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Grid|Material")
+    /** Base tile material */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Assets")
     TObjectPtr<UMaterialInterface> TileMaterial;
 
-    // Scale factor for tiles (0.9 = 10% gap, 0.85 = 15% gap)
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid|Mesh", meta = (ClampMin = "0.1", ClampMax = "1.0"))
-    float TileScale = 0.9f;
+    /** Border frame mesh (hollow square, generated if null) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Assets")
+    TObjectPtr<UStaticMesh> BorderFrameMesh;
 
-    // Dynamic material instance (for runtime color changes)
-    UPROPERTY()
-    TObjectPtr<UMaterialInstanceDynamic> DynamicTileMaterial;
+    /** Border material (emissive for glow) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Assets")
+    TObjectPtr<UMaterialInterface> BorderMaterial;
+
+    /** Hover overlay material */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Assets")
+    TObjectPtr<UMaterialInterface> HoverMaterial;
 
     // ========================================
-    // GRID REFERENCE
+    // TERRAIN COLORS (Low Alpha for Visibility)
     // ========================================
 
-    // Grid manager reference
+    /** Normal walkable terrain color (light green, low alpha) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Terrain Colors")
+    FLinearColor NormalTerrainColor = FLinearColor(0.3f, 0.8f, 0.3f, 0.3f);
+
+    /** Difficult terrain color (yellow, low alpha) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Terrain Colors")
+    FLinearColor DifficultTerrainColor = FLinearColor(0.8f, 0.8f, 0.3f, 0.3f);
+
+    /** Very difficult terrain color (orange, low alpha) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Terrain Colors")
+    FLinearColor VeryDifficultTerrainColor = FLinearColor(0.9f, 0.5f, 0.2f, 0.3f);
+
+    /** Impassable terrain color (dark gray) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Terrain Colors")
+    FLinearColor ImpassableTerrainColor = FLinearColor(0.2f, 0.2f, 0.2f, 0.5f);
+
+    // ========================================
+    // HOVER SETTINGS
+    // ========================================
+
+    /** Hover brightness multiplier (1.5 = 50% brighter) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Hover")
+    float HoverBrightness = 1.5f;
+
+    /** Hover outline color (white) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid Visualization|Hover")
+    FLinearColor HoverOutlineColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+    
+
+    // ========================================
+    // STATE
+    // ========================================
+
+    /** Currently selected tile */
+    UPROPERTY(BlueprintReadOnly, Category = "Kalki|Grid Visualization")
+    FKalkiGridCoord SelectedTile;
+
+    /** Is a tile selected? */
+    UPROPERTY(BlueprintReadOnly, Category = "Kalki|Grid Visualization")
+    bool bHasSelection = false;
+
+    /** Currently hovered tile */
+    UPROPERTY(BlueprintReadOnly, Category = "Kalki|Grid Visualization")
+    FKalkiGridCoord HoveredTile;
+
+    /** Is a tile hovered? */
+    UPROPERTY(BlueprintReadOnly, Category = "Kalki|Grid Visualization")
+    bool bHasHover = false;
+
+    /** Current movement tiers being displayed */
+    UPROPERTY(BlueprintReadOnly, Category = "Kalki|Grid Visualization")
+    TArray<FKalkiMovementTier> ActiveMovementTiers;
+
+    // ========================================
+    // TILE SELECTION (Used by GridInteractionComponent)
+    // ========================================
+
+    /**
+     * Select a tile (visual feedback only, doesn't move anything)
+     * Used when player clicks on a tile
+     */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void SelectTile(const FKalkiGridCoord& Coord);
+
+    /** Clear tile selection */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void ClearSelection();
+
+    /** Get currently selected tile */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Kalki|Grid Visualization")
+    FKalkiGridCoord GetSelectedTile() const { return SelectedTile; }
+
+    /** Is a tile currently selected? */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Kalki|Grid Visualization")
+    bool HasSelection() const { return bHasSelection; }
+
+    // ========================================
+    // GRID VISIBILITY (Used by GridInteractionComponent)
+    // ========================================
+
+    /** Show the grid */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void ShowGrid();
+
+    /** Hide the grid */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void HideGrid();
+
+    /** Set grid visibility */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void SetShowGrid(bool bShow);
+
+    /** Is grid currently visible? */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Kalki|Grid Visualization")
+    bool IsGridVisible() const { return bGridVisible; }
+
+    // ========================================
+    // LEGACY COMPATIBILITY (Aliases)
+    // ========================================
+
+    /** Deselect tile (alias for ClearSelection) */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void DeselectTile() { ClearSelection(); }
+
+    // ========================================
+    // MOVEMENT RANGE (Multi-Tier System)
+    // ========================================
+
+    /**
+     * Show movement range with multiple tiers (Normal/Dash/Triple)
+     * 
+     * @param Origin - Starting position (character location)
+     * @param Tiers - Array of movement tiers (range + color + Z-offset)
+     * 
+     * EXAMPLE:
+     * TArray<FKalkiMovementTier> Tiers;
+     * Tiers.Add(FKalkiMovementTier(6, Cyan, "Normal", 5.0f));
+     * Tiers.Add(FKalkiMovementTier(12, Yellow, "Dash", 6.0f));
+     * ShowMovementRange(CharPos, Tiers);
+     * 
+     * This will show cyan borders for tiles 0-6 and yellow borders for tiles 7-12.
+     * Borders are nested (tiles 0-6 have BOTH cyan and yellow).
+     */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void ShowMovementRange(const FKalkiGridCoord& Origin, const TArray<FKalkiMovementTier>& Tiers);
+
+    /** Hide movement range (clear all border layers) */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void HideMovementRange();
+
+    /** Is movement range currently shown? */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Kalki|Grid Visualization")
+    bool IsShowingMovementRange() const { return ActiveMovementTiers.Num() > 0; }
+
+    // ========================================
+    // GRID CREATION/UPDATES
+    // ========================================
+
+    /** Create visual instances for all tiles */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void CreateGridVisuals();
+
+    /** Clear all visual instances */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void ClearGridVisuals();
+
+    /** Update single tile visual (color based on terrain cost) */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void UpdateTileVisual(const FKalkiGridCoord& Coord);
+
+    /** Refresh all tile visuals */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Visualization")
+    void RefreshAllVisuals();
+
+private:
+    // ========================================
+    // CACHED REFERENCES
+    // ========================================
+
     UPROPERTY()
     TObjectPtr<UKalkiGridManager> GridManager;
 
     // ========================================
-    // VISUALIZATION SETTINGS
+    // INTERNAL FUNCTIONS
     // ========================================
 
-    UPROPERTY(EditAnywhere, Category = "Grid|Settings")
-    bool bShowGrid = true;
+    /** Cache subsystem references */
+    void CacheReferences();
 
-    UPROPERTY(EditAnywhere, Category = "Grid|Settings")
-    bool bShowElevation = true;
+    /** Initialize mesh components */
+    void InitializeMeshComponents();
 
-    UPROPERTY(EditAnywhere, Category = "Grid|Settings")
-    bool bShowWalkability = true;
+    /** Generate border frame mesh if not provided */
+    void GenerateBorderFrameMesh();
 
-    UPROPERTY(EditAnywhere, Category = "Grid|Settings")
-    float TileZOffset = 1.0f; // Offset above ground to prevent z-fighting
+    /** Called when grid is created */
+    UFUNCTION()
+    void OnGridCreated();
 
-    // ========================================
-    // COLORS
-    // ========================================
+    /** Called when grid is cleared */
+    UFUNCTION()
+    void OnGridCleared();
 
-    // Base tile colors
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors")
-    FLinearColor WalkableColor = FLinearColor(0.0f, 1.0f, 0.0f, 0.3f); // Green
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors")
-    FLinearColor UnwalkableColor = FLinearColor(1.0f, 0.0f, 0.0f, 0.3f); // Red
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors")
-    FLinearColor OccupiedColor = FLinearColor(1.0f, 0.5f, 0.0f, 0.3f); // Orange
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors")
-    FLinearColor BaseElevationColor = FLinearColor(0.5f, 0.5f, 0.5f, 1.0f); // Gray
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors")
-    FLinearColor HighElevationColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f); // White
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors")
-    float MaxElevationForColor = 500.0f; // Elevation at which color is fully white
-
-    // Hover and selection colors
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors|Hover")
-    FLinearColor HoverColor = FLinearColor(1.0f, 1.0f, 0.0f, 0.5f); // Yellow
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors|Selection")
-    FLinearColor SelectedColor = FLinearColor(0.0f, 1.0f, 1.0f, 0.5f); // Cyan
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Colors|Movement Range")
-    FLinearColor MovementRangeColor = FLinearColor(0.0f, 0.5f, 1.0f, 0.4f); // Blue
-
-    // ========================================
-    // HOVER DETECTION
-    // ========================================
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Hover")
-    bool bEnableHover = true;
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Hover")
-    float HoverRaycastDistance = 10000.0f;
-
-    // Hover state
-    FKalkiGridCoord HoveredTile = FKalkiGridCoord(-1, -1);
-    FKalkiGridCoord PreviousHoveredTile = FKalkiGridCoord(-1, -1);
-
-    // ========================================
-    // SELECTION
-    // ========================================
-
-    // Selected tile (for movement preview)
-    FKalkiGridCoord SelectedTile = FKalkiGridCoord(-1, -1);
-    bool bHasTileSelected = false;
-
-    // ========================================
-    // MOVEMENT RANGE
-    // ========================================
-
-    // Movement range preview
-    TSet<FKalkiGridCoord> MovementRangeTiles;
-
-    UPROPERTY(EditAnywhere, Category = "Grid|Movement Range")
-    int32 PreviewMovementRange = 5; // Default range for testing
-
-    // ========================================
-    // INFO WIDGET
-    // ========================================
-
-    UPROPERTY(EditAnywhere, Category = "Grid|UI")
-    TSubclassOf<UKalkiGridInfoWidget> GridInfoWidgetClass;
-
-    UPROPERTY()
-    TObjectPtr<UKalkiGridInfoWidget> GridInfoWidget;
-
-    UPROPERTY()
-    TObjectPtr<UKalkiGridInfoViewModel> GridInfoViewModel;
-
-    // ========================================
-    // GRID STATE
-    // ========================================
-
-    bool bGridInitialized = false;
-
-    // ========================================
-    // INITIALIZATION
-    // ========================================
-
-    // Initialize the grid visualization
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void InitializeGrid();
-
-    // ========================================
-    // TILE UPDATES
-    // ========================================
-
-    // Update all tile visuals
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void RefreshGrid();
-
-    // Update a single tile's visual
-    void UpdateTileVisual(const FKalkiGridCoord& Coord);
-
-    // Get color for a tile based on its state
-    FLinearColor GetTileColor(const FKalkiGridTile& Tile) const;
-
-    // ========================================
-    // HOVER SYSTEM
-    // ========================================
-
-    // Update hover state (called every tick)
-    void UpdateHover(float DeltaTime);
-
-    // Get tile under mouse cursor
-    bool GetTileUnderCursor(FKalkiGridCoord& OutCoord) const;
-
-    // ========================================
-    // HIGHLIGHT SYSTEM
-    // ========================================
-
-    // Set highlight color on a tile
-    void SetTileHighlight(const FKalkiGridCoord& Coord, const FLinearColor& Color);
-
-    // Clear highlight from a tile (restore original color)
-    void ClearTileHighlight(const FKalkiGridCoord& Coord);
-
-    // Clear all highlights
-    void ClearAllHighlights();
-
-    // ========================================
-    // EVENT HANDLERS
-    // ========================================
-
-    // Event handler for tile changes
+    /** Called when tile changes */
     UFUNCTION()
     void OnTileChanged(const FKalkiGridCoord& Coord);
 
-    // ========================================
-    // VISIBILITY
-    // ========================================
+    /** Get terrain color for tile based on movement cost */
+    FLinearColor GetTerrainColorForTile(const FKalkiGridCoord& Coord) const;
 
-    // Show/hide the grid
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void SetGridVisible(bool bVisible);
+    /** Set instance color (for base tiles) */
+    void SetTileInstanceColor(int32 InstanceIndex, const FLinearColor& Color);
 
-public:
-    // ========================================
-    // PUBLIC API
-    // ========================================
+    /** Update hover effect (called every frame in Tick) */
+    void UpdateHoverEffect();
 
-    // External controls (for combat mode, etc.)
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void ShowGrid() { SetGridVisible(true); }
+    /** Clear hover effect */
+    void ClearHoverEffect();
 
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void HideGrid() { SetGridVisible(false); }
+    /** Get tile under cursor (for hover detection) */
+    FKalkiGridCoord GetTileUnderCursor(bool& bSuccess);
 
-    // Selection
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void SelectTile(const FKalkiGridCoord& Coord);
-
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void DeselectTile();
-
-    // Movement range preview
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void ShowMovementRange(const FKalkiGridCoord& Origin, int32 Range);
-
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void HideMovementRange();
-
-    // Getters
-    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
-    FKalkiGridCoord GetHoveredTile() const { return HoveredTile; }
-
-    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
-    bool IsHoveringTile() const { return HoveredTile.X >= 0 && HoveredTile.Y >= 0; }
-
-    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
-    FKalkiGridCoord GetSelectedTile() const { return SelectedTile; }
-
-    UFUNCTION(BlueprintPure, Category = "Kalki|Grid")
-    bool HasTileSelected() const { return bHasTileSelected; }
-
-protected:
-    // Update widget position to follow mouse
-    void UpdateWidgetPosition();
-    
-    // Offset from cursor (so tooltip doesn't cover cursor)
-    UPROPERTY(EditAnywhere, Category = "Grid|UI")
-    FVector2D TooltipOffset = FVector2D(15.0f, 15.0f);
+    /** Raycast to grid from mouse position */
+    bool RaycastToGrid(FVector& OutHitLocation, FKalkiGridCoord& OutCoord);
 };

@@ -2,7 +2,6 @@
 
 #include "Grid/Components/KalkiGridOccupancyComponent.h"
 #include "Grid/KalkiGridManager.h"
-#include "Grid/Components/KalkiGridOccupant.h"
 #include "Logging/KalkiLog.h"
 #include "Net/UnrealNetwork.h"
 

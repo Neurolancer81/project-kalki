@@ -5,10 +5,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
-#include "Grid/Components/KalkiGridOccupant.h" // ✅ Implements interface
+#include "Grid/Components/KalkiGridOccupant.h"
 #include "KalkiTypes.h"
-#include "Camera/CameraComponent.h"
-#include "GameFramework/SpringArmComponent.h"
 
 #include "KalkiCharacter.generated.h"
 
@@ -17,12 +15,12 @@ class UKalkiAttributeSet;
 class UKalkiAbilitySystemComponent;
 class UAbilitySystemComponent;
 class UAttributeSet;
-class UKalkiGridOccupancyComponent; // ✅ Component
+class UKalkiGridOccupancyComponent;
 
 UCLASS()
 class KALKI_API AKalkiCharacter : public ACharacter, 
                                    public IAbilitySystemInterface,
-                                   public IKalkiGridOccupant // ✅ Implements interface
+                                   public IKalkiGridOccupant
 {
     GENERATED_BODY()
 
@@ -42,7 +40,7 @@ public:
     UKalkiAttributeSet* GetAttributeSet() const { return AttributeSet; }
 
     // ========================================
-    // IKalkiGridOccupant Interface ✅ NEW
+    // IKalkiGridOccupant Interface
     // ========================================
 
     virtual FKalkiGridCoord GetGridPosition_Implementation() const override;
@@ -51,16 +49,16 @@ public:
     virtual UKalkiGridOccupancyComponent* GetGridOccupancyComponent_Implementation() const override;
 
     // ========================================
-    // GRID HELPERS (Convenience)
+    // GRID HELPERS
     // ========================================
 
     /** Get movement range (from stats or default) */
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Kalki|Grid")
     int32 GetMovementRange() const;
 
-    FKalkiCharacterData GetCharacterData() const {return CharacterData;}
-
-    UKalkiDnD5eRuleset* GetActiveRuleSet() const {return ActiveRuleset;};
+    /** Force snap character to nearest grid tile */
+    UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
+    bool SnapToNearestTile();
 
 protected:
     virtual void BeginPlay() override;
@@ -77,7 +75,7 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Abilities", meta = (AllowPrivateAccess = "true"))
     TObjectPtr<UKalkiAttributeSet> AttributeSet;
 
-    /** Grid occupancy component ✅ NEW */
+    /** Grid occupancy component */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kalki|Grid", meta = (AllowPrivateAccess = "true"))
     TObjectPtr<UKalkiGridOccupancyComponent> GridOccupancyComponent;
 
@@ -100,21 +98,37 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid")
     int32 DefaultMovementRange = 6;
 
-/********************************* START DEBUG STUFF ************************************************/
-public:
-    // Debug visualization
-    UFUNCTION(BlueprintCallable, Category = "Kalki|Debug")
-    void DrawDebugStats() const;
+    /** Auto-place on grid at BeginPlay? */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Grid")
+    bool bAutoPlaceOnGrid = true;
 
-    // Or simpler - apply damage/heal directly through GAS
-    void ApplyHealthChange(float Delta);
+private:
+    // ========================================
+    // INTERNAL GRID FUNCTIONS
+    // ========================================
 
-protected:
-    // Tick to draw debug info
-    virtual void Tick(float DeltaTime) override;
+    /** Initialize grid placement at BeginPlay */
+    void InitializeGridPlacement();
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kalki|Debug")
-    bool bShowDebugStats = true;
+    /** Place character on grid at nearest valid tile */
+    bool PlaceOnNearestTile();
 
-/***************************** END DEBUG STUFF ************************************************/
+    /** Find nearby empty tile if placement fails */
+    FKalkiGridCoord FindNearbyEmptyTile(const FKalkiGridCoord& StartCoord, int32 MaxRadius = 5);
+
+    /** Called when grid is created */
+    UFUNCTION()
+    void OnGridCreated();
+
+    /** Called when grid is cleared */
+    UFUNCTION()
+    void OnGridCleared();
+
+    /** Track if we attempted placement */
+    bool bAttemptedGridPlacement = false;
+
+    /** Deferred grid initialization (called next frame) */
+    void DeferredGridInitialization();
 };
+
+

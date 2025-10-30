@@ -78,6 +78,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Interaction")
 	bool RaycastToGrid(FVector& OutHitLocation, FKalkiGridCoord& OutCoord);
 
+	// ✅ ADD THIS NEW FUNCTION
+	/** Raycast to detect character under cursor */
+	UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Interaction")
+	bool RaycastToCharacter(AKalkiCharacter*& OutCharacter);
+
 	/** Get tile under mouse cursor */
 	UFUNCTION(BlueprintCallable, Category = "Kalki|Grid Interaction")
 	FKalkiGridCoord GetTileUnderCursor(bool& bSuccess);

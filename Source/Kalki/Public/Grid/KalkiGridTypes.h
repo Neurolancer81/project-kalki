@@ -223,3 +223,96 @@ struct KALKI_API FKalkiGridChange
 
     FKalkiGridChange() {}
 };
+
+/**
+ * Movement Tier
+ * Defines a range tier with its visual representation
+ * Used for showing Normal Move, Dash, Triple Move, etc.
+ * 
+ * EXAMPLES:
+ * - D&D 5e: Normal (6 tiles, cyan), Dash (12 tiles, yellow)
+ * - PF2e: 1-Action (6), 2-Action (12), 3-Action (18)
+ * - Special: Flying (15 tiles, blue), Climbing (8 tiles, green)
+ */
+USTRUCT(BlueprintType)
+struct KALKI_API FKalkiMovementTier
+{
+    GENERATED_BODY()
+
+    /** Maximum range for this tier (in tiles) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    int32 Range = 0;
+
+    /** Border color for this tier */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    FLinearColor BorderColor = FLinearColor::White;
+
+    /** Display name (for debugging and UI) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    FString TierName = TEXT("Unknown");
+
+    /** Border thickness (in world units) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float BorderThickness = 3.0f;
+
+    /** Z-height offset (for layering) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+    float ZOffset = 5.0f;
+
+    // ========================================
+    // CONSTRUCTORS
+    // ========================================
+
+    /** Default constructor */
+    FKalkiMovementTier()
+        : Range(0)
+        , BorderColor(FLinearColor::White)
+        , TierName(TEXT("Unknown"))
+        , BorderThickness(3.0f)
+        , ZOffset(5.0f)
+    {
+    }
+
+    /** Convenience constructor */
+    FKalkiMovementTier(int32 InRange, const FLinearColor& InColor, const FString& InName, float InZOffset = 5.0f)
+        : Range(InRange)
+        , BorderColor(InColor)
+        , TierName(InName)
+        , BorderThickness(3.0f)
+        , ZOffset(InZOffset)
+    {
+    }
+
+    // ========================================
+    // UTILITY
+    // ========================================
+
+    /** Check if tier is valid */
+    bool IsValid() const
+    {
+        return Range > 0;
+    }
+
+    /** Debug string */
+    FString ToString() const
+    {
+        return FString::Printf(TEXT("%s: %d tiles (R:%.2f G:%.2f B:%.2f)"),
+            *TierName,
+            Range,
+            BorderColor.R,
+            BorderColor.G,
+            BorderColor.B
+        );
+    }
+
+    /** Comparison (for sorting by range) */
+    bool operator<(const FKalkiMovementTier& Other) const
+    {
+        return Range < Other.Range;
+    }
+
+    bool operator==(const FKalkiMovementTier& Other) const
+    {
+        return Range == Other.Range && TierName.Equals(Other.TierName);
+    }
+};

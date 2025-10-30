@@ -4,15 +4,15 @@
 #include "AbilitySystem/KalkiAbilitySystemComponent.h"
 #include "AbilitySystem/KalkiAttributeSet.h"
 #include "Ruleset/KalkiDnD5eRuleset.h"
-#include "Grid/Components/KalkiGridOccupancyComponent.h" // ✅ ADD
-#include "Logging/KalkiLog.h" // ✅ ADD
-#include "DrawDebugHelpers.h"
+#include "Grid/Components/KalkiGridOccupancyComponent.h"
+#include "Grid/KalkiGridManager.h"
+#include "Logging/KalkiLog.h"
 
 AKalkiCharacter::AKalkiCharacter(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
     , bAbilitySystemInitialized(false)
 {
-    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bCanEverTick = false;
 
     bUseControllerRotationPitch = false;
     bUseControllerRotationYaw = false;
@@ -26,8 +26,15 @@ AKalkiCharacter::AKalkiCharacter(const FObjectInitializer& ObjectInitializer)
     // Create attribute set
     AttributeSet = CreateDefaultSubobject<UKalkiAttributeSet>(TEXT("AttributeSet"));
 
-    // ✅ CREATE GRID OCCUPANCY COMPONENT
+    // Create grid occupancy component
     GridOccupancyComponent = CreateDefaultSubobject<UKalkiGridOccupancyComponent>(TEXT("GridOccupancyComponent"));
+
+    // Defer grid initialization to next tick
+    // This ensures all subsystems are initialized
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().SetTimerForNextTick(this, &ThisClass::DeferredGridInitialization);
+    }
 }
 
 // Override for the IASC
@@ -39,6 +46,9 @@ UAbilitySystemComponent* AKalkiCharacter::GetAbilitySystemComponent() const
 void AKalkiCharacter::BeginPlay()
 {
     Super::BeginPlay();
+
+    // Initialize grid placement
+    InitializeGridPlacement();
 }
 
 void AKalkiCharacter::PossessedBy(AController* NewController)
@@ -132,7 +142,7 @@ void AKalkiCharacter::InitializeAbilitySystem()
 }
 
 // ========================================
-// IKalkiGridOccupant Interface ✅ NEW
+// IKalkiGridOccupant Interface
 // ========================================
 
 FKalkiGridCoord AKalkiCharacter::GetGridPosition_Implementation() const
@@ -183,74 +193,219 @@ int32 AKalkiCharacter::GetMovementRange() const
     return DefaultMovementRange;
 }
 
-/************************************ DEBUG ********************************************************/
-
-void AKalkiCharacter::DrawDebugStats() const
+bool AKalkiCharacter::SnapToNearestTile()
 {
-    if (!AttributeSet)
+    return PlaceOnNearestTile();
+}
+
+// ========================================
+// INTERNAL GRID FUNCTIONS
+// ========================================
+
+void AKalkiCharacter::InitializeGridPlacement()
+{
+    // Skip if auto-place disabled
+    if (!bAutoPlaceOnGrid)
     {
         return;
     }
 
-    FVector Location = GetActorLocation() + FVector(0, 0, 100); // Above character
-
-    // ✅ UPDATED - Include grid position
-    FString DebugText = FString::Printf(
-        TEXT("%s (Lvl %d %s)\n")
-        TEXT("Grid: %s\n") // ✅ ADD
-        TEXT("STR: %.0f (%+d)  DEX: %.0f (%+d)  CON: %.0f (%+d)\n")
-        TEXT("INT: %.0f (%+d)  WIS: %.0f (%+d)  CHA: %.0f (%+d)\n")
-        TEXT("HP: %.0f/%.0f  AC: %.0f  Move: %d"), // ✅ ADD Move
-        *CharacterData.CharacterName,
-        CharacterData.Level,
-        *UEnum::GetValueAsString(CharacterData.Class),
-        *IKalkiGridOccupant::Execute_GetGridPosition(this).ToString(), // ✅ Use interface
-        AttributeSet->GetStrength(),
-        ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetStrength()) : 0,
-        AttributeSet->GetDexterity(),
-        ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetDexterity()) : 0,
-        AttributeSet->GetConstitution(),
-        ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetConstitution()) : 0,
-        AttributeSet->GetIntelligence(),
-        ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetIntelligence()) : 0,
-        AttributeSet->GetWisdom(),
-        ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetWisdom()) : 0,
-        AttributeSet->GetCharisma(),
-        ActiveRuleset ? ActiveRuleset->CalculateAbilityModifier(AttributeSet->GetCharisma()) : 0,
-        AttributeSet->GetHealth(),
-        AttributeSet->GetMaxHealth(),
-        AttributeSet->GetArmorClass(),
-        GetMovementRange() // ✅ ADD
-    );
-
-    DrawDebugString(GetWorld(), Location, DebugText, nullptr, FColor::White, 0.0f, true, 1.2f);
-}
-
-void AKalkiCharacter::Tick(float DeltaTime)
-{
-    Super::Tick(DeltaTime);
-
-    if (bShowDebugStats)
-    {
-        DrawDebugStats();
-    }
-}
-
-void AKalkiCharacter::ApplyHealthChange(float Delta)
-{
-    if (!AbilitySystemComponent || !AttributeSet)
+    // Skip if already on grid
+    if (GridOccupancyComponent && GridOccupancyComponent->IsOnGrid())
     {
         return;
     }
 
-    const float CurrentHealth = AttributeSet->GetHealth();
-    const float MaxHealth = AttributeSet->GetMaxHealth();
-    const float NewHealth = FMath::Clamp(CurrentHealth + Delta, 0.0f, MaxHealth);
+    // Skip if already attempted
+    if (bAttemptedGridPlacement)
+    {
+        return;
+    }
 
-    AbilitySystemComponent->SetNumericAttributeBase(
-        UKalkiAttributeSet::GetHealthAttribute(),
-        NewHealth
-    );
+    // Mark as attempted
+    bAttemptedGridPlacement = true;
+
+    // Attempt to place on grid
+    PlaceOnNearestTile();
 }
 
-/*********************************************** END DEBUG *************************/
+// Delegate handler implementations
+void AKalkiCharacter::OnGridCreated()
+{
+    // Grid was just created - try to place character
+    InitializeGridPlacement();
+}
+
+void AKalkiCharacter::OnGridCleared()
+{
+    // Grid was cleared - remove from grid
+    if (GridOccupancyComponent && GridOccupancyComponent->IsOnGrid())
+    {
+        GridOccupancyComponent->RemoveFromGrid();
+    }
+
+    // Reset placement flag so we can try again when grid is recreated
+    bAttemptedGridPlacement = false;
+}
+
+bool AKalkiCharacter::PlaceOnNearestTile()
+{
+    if (!GridOccupancyComponent)
+    {
+        KalkiLog::Grid(
+            TEXT("PlaceOnNearestTile - No GridOccupancyComponent"),
+            EKalkiLogSeverity::Error,
+            this
+        );
+        return false;
+    }
+
+    // Get grid manager
+    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
+ 
+    // Get current world position
+    FVector CurrentWorldPos = GetActorLocation();
+    
+    // Convert to grid coordinate (rounds to nearest tile)
+    FKalkiGridCoord NearestCoord = GridManager->WorldPositionToCoord(CurrentWorldPos);
+    
+    // Validate coordinate
+    if (!GridManager->IsValidCoord(NearestCoord))
+    {
+        KalkiLog::Grid(
+            FString::Printf(TEXT("%s outside grid bounds at world position: (%.0f, %.0f, %.0f)"),
+                *GetName(),
+                CurrentWorldPos.X, CurrentWorldPos.Y, CurrentWorldPos.Z),
+            EKalkiLogSeverity::Warning,
+            this
+        );
+        return false;
+    }
+
+    // Remove from current position if already on grid
+    if (GridOccupancyComponent->IsOnGrid())
+    {
+        GridOccupancyComponent->RemoveFromGrid();
+    }
+
+    // Try to place on nearest tile
+    if (GridOccupancyComponent->PlaceOnGrid(NearestCoord))
+    {
+        FVector SnappedWorldPos = GridManager->CoordToWorldPosition(NearestCoord);
+        
+        KalkiLog::Grid(
+            FString::Printf(TEXT("%s placed on grid at: %s (World: %.0f, %.0f, %.0f)"),
+                *GetName(),
+                *NearestCoord.ToString(),
+                SnappedWorldPos.X, SnappedWorldPos.Y, SnappedWorldPos.Z),
+            EKalkiLogSeverity::Verbose,
+            this
+        );
+        
+        return true;
+    }
+
+    // Tile occupied or unwalkable - try to find nearby empty tile
+    FKalkiGridCoord EmptyTile = FindNearbyEmptyTile(NearestCoord);
+    
+    if (EmptyTile.IsValid() && GridOccupancyComponent->PlaceOnGrid(EmptyTile))
+    {
+        KalkiLog::Grid(
+            FString::Printf(TEXT("%s placed on nearby tile: %s (original %s was occupied)"),
+                *GetName(),
+                *EmptyTile.ToString(),
+                *NearestCoord.ToString()),
+            EKalkiLogSeverity::Verbose,
+            this
+        );
+        
+        return true;
+    }
+
+    // Failed to place
+    KalkiLog::Grid(
+        FString::Printf(TEXT("%s failed to find empty tile near: %s"),
+            *GetName(),
+            *NearestCoord.ToString()),
+        EKalkiLogSeverity::Error,
+        this
+    );
+    
+    return false;
+}
+
+FKalkiGridCoord AKalkiCharacter::FindNearbyEmptyTile(const FKalkiGridCoord& StartCoord, int32 MaxRadius)
+{
+    UKalkiGridManager* GridManager = GetWorld()->GetSubsystem<UKalkiGridManager>();
+    if (!GridManager)
+    {
+        return FKalkiGridCoord::Invalid();
+    }
+
+    // Search in expanding rings around the start coordinate
+    for (int32 Radius = 1; Radius <= MaxRadius; ++Radius)
+    {
+        // Check tiles in a square ring at this radius
+        for (int32 X = StartCoord.X - Radius; X <= StartCoord.X + Radius; ++X)
+        {
+            for (int32 Y = StartCoord.Y - Radius; Y <= StartCoord.Y + Radius; ++Y)
+            {
+                // Only check perimeter (not interior)
+                bool bIsPerimeter = (FMath::Abs(X - StartCoord.X) == Radius) || 
+                                   (FMath::Abs(Y - StartCoord.Y) == Radius);
+                
+                if (!bIsPerimeter)
+                {
+                    continue;
+                }
+
+                FKalkiGridCoord TestCoord(X, Y);
+                
+                // Check if valid
+                if (!GridManager->IsValidCoord(TestCoord))
+                {
+                    continue;
+                }
+
+                // Check if tile is empty and walkable
+                FKalkiGridTile Tile = GridManager->GetTile(TestCoord);
+                if (Tile.bWalkable && !Tile.IsOccupied())
+                {
+                    return TestCoord;
+                }
+            }
+        }
+    }
+
+    // No empty tile found
+    return FKalkiGridCoord::Invalid();
+}
+
+void AKalkiCharacter::DeferredGridInitialization()
+{
+    // Safe to access subsystems now
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    UKalkiGridManager* GridManager = World->GetSubsystem<UKalkiGridManager>();
+    if (!GridManager)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("KalkiCharacter - GridManager subsystem not found for %s"), *GetName());
+        return;
+    }
+
+    // Bind to grid events (remove first to prevent duplicates)
+    GridManager->OnGridCreated.RemoveDynamic(this, &AKalkiCharacter::OnGridCreated);
+    GridManager->OnGridCreated.AddDynamic(this, &AKalkiCharacter::OnGridCreated);
+
+    GridManager->OnGridCleared.RemoveDynamic(this, &AKalkiCharacter::OnGridCleared);
+    GridManager->OnGridCleared.AddDynamic(this, &AKalkiCharacter::OnGridCleared);
+
+    // Try immediate placement
+    InitializeGridPlacement();
+}
+
+

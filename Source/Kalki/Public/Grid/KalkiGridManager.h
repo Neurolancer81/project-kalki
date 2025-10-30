@@ -66,7 +66,7 @@ public:
 
     /** Set tile occupant (pass nullptr to clear) */
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
-    void SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant);
+    bool SetTileOccupant(const FKalkiGridCoord& Coord, AActor* Occupant);
 
     UFUNCTION(BlueprintCallable, Category = "Kalki|Grid")
     bool ClearTileOccupant(const FKalkiGridCoord& Coord);
